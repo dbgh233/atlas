@@ -101,48 +101,48 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| EVNT-01 | TBD | Pending |
-| EVNT-02 | TBD | Pending |
-| EVNT-03 | TBD | Pending |
-| EVNT-04 | TBD | Pending |
-| EVNT-05 | TBD | Pending |
-| EVNT-06 | TBD | Pending |
-| EVNT-07 | TBD | Pending |
-| EVNT-08 | TBD | Pending |
-| EVNT-09 | TBD | Pending |
-| EVNT-10 | TBD | Pending |
-| EVNT-11 | TBD | Pending |
-| EVNT-12 | TBD | Pending |
-| AUDIT-01 | TBD | Pending |
-| AUDIT-02 | TBD | Pending |
-| AUDIT-03 | TBD | Pending |
-| AUDIT-04 | TBD | Pending |
-| AUDIT-05 | TBD | Pending |
-| AUDIT-06 | TBD | Pending |
-| AUDIT-07 | TBD | Pending |
-| AUDIT-08 | TBD | Pending |
-| AUDIT-09 | TBD | Pending |
-| AUDIT-10 | TBD | Pending |
-| AUDIT-11 | TBD | Pending |
-| AUDIT-12 | TBD | Pending |
-| NOTIF-01 | TBD | Pending |
-| NOTIF-02 | TBD | Pending |
-| NOTIF-03 | TBD | Pending |
-| NOTIF-04 | TBD | Pending |
-| INFRA-01 | TBD | Pending |
-| INFRA-02 | TBD | Pending |
-| INFRA-03 | TBD | Pending |
-| INFRA-04 | TBD | Pending |
-| INFRA-05 | TBD | Pending |
-| INFRA-06 | TBD | Pending |
-| INFRA-07 | TBD | Pending |
-| INFRA-08 | TBD | Pending |
+| EVNT-01 | Phase 2 | Pending |
+| EVNT-02 | Phase 2 | Pending |
+| EVNT-03 | Phase 2 | Pending |
+| EVNT-04 | Phase 2 | Pending |
+| EVNT-05 | Phase 2 | Pending |
+| EVNT-06 | Phase 2 | Pending |
+| EVNT-07 | Phase 2 | Pending |
+| EVNT-08 | Phase 2 | Pending |
+| EVNT-09 | Phase 2 | Pending |
+| EVNT-10 | Phase 3 | Pending |
+| EVNT-11 | Phase 3 | Pending |
+| EVNT-12 | Phase 3 | Pending |
+| AUDIT-01 | Phase 4 | Pending |
+| AUDIT-02 | Phase 4 | Pending |
+| AUDIT-03 | Phase 4 | Pending |
+| AUDIT-04 | Phase 4 | Pending |
+| AUDIT-05 | Phase 4 | Pending |
+| AUDIT-06 | Phase 4 | Pending |
+| AUDIT-07 | Phase 4 | Pending |
+| AUDIT-08 | Phase 4 | Pending |
+| AUDIT-09 | Phase 4 | Pending |
+| AUDIT-10 | Phase 5 | Pending |
+| AUDIT-11 | Phase 5 | Pending |
+| AUDIT-12 | Phase 5 | Pending |
+| NOTIF-01 | Phase 2 | Pending |
+| NOTIF-02 | Phase 4 | Pending |
+| NOTIF-03 | Phase 6 | Pending |
+| NOTIF-04 | Phase 6 | Pending |
+| INFRA-01 | Phase 1 | Pending |
+| INFRA-02 | Phase 2 | Pending |
+| INFRA-03 | Phase 1 | Pending |
+| INFRA-04 | Phase 6 | Pending |
+| INFRA-05 | Phase 6 | Pending |
+| INFRA-06 | Phase 1 | Pending |
+| INFRA-07 | Phase 1 | Pending |
+| INFRA-08 | Phase 3 | Pending |
 
 **Coverage:**
-- v1 requirements: 32 total
-- Mapped to phases: 0
-- Unmapped: 32 ⚠️
+- v1 requirements: 36 total
+- Mapped to phases: 36
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-04*
-*Last updated: 2026-03-04 after initial definition*
+*Last updated: 2026-03-04 after roadmap creation*
