@@ -1,40 +1,44 @@
 # Roadmap: Atlas
 
 **Created:** 2026-03-04
+**Updated:** 2026-03-05
 **Depth:** Standard
-**Phases:** 6
-**Requirements:** 36 mapped
+**Phases:** 8
+**Requirements:** 48 mapped
 
 ## Overview
 
-Atlas delivers pipeline intelligence in two independent capabilities: Calendly webhook event handling (the primary value) and daily pipeline auditing (the CEO's daily tool). The build order follows the dependency chain: shared infrastructure first, then the webhook handler (hardest engineering problem: opportunity matching), then audit (depends on a proven GHL client), then operational hardening. Each phase delivers a verifiable, running capability on Railway.
+Atlas delivers pipeline intelligence in three layers: Calendly webhook event handling (the primary value), daily pipeline auditing (the CEO's daily tool), and a conversational Slack agent powered by Claude Opus 4.6 that turns audit findings into actionable suggestions and learns from every human interaction to progressively handle more autonomously. The build follows the dependency chain: shared infrastructure and ALL API clients first (GHL, Calendly, Slack Events, Claude), then the webhook handler (hardest matching problem), then audit (depends on proven GHL client), then audit intelligence (suggested actions needed before conversational layer), then conversational agent (needs pipeline data to reason about), then graduated autonomy (needs interaction history to score confidence), and finally operational readiness.
 
 ## Phases
 
-- [ ] **Phase 1: Foundation** - App scaffold, API clients, structured logging, Railway deployment
-- [ ] **Phase 2: Webhook Event Handler** - Calendly webhooks matched to GHL opportunities with correct field writes
-- [ ] **Phase 3: Webhook Hardening** - Read-back verification, dead letter queue, dry-run mode, persistent storage
+- [ ] **Phase 1: Foundation** - App scaffold, ALL API clients (GHL, Calendly, Slack Events, Claude), persistent storage, structured logging, Railway deployment
+- [ ] **Phase 2: Webhook Event Handler** - Calendly webhooks matched to GHL opportunities with correct field writes and Slack notifications
+- [ ] **Phase 3: Webhook Hardening** - Read-back verification, dead letter queue, dry-run mode
 - [ ] **Phase 4: Pipeline Audit** - Daily scheduled audit with Slack digest grouped by owner
-- [ ] **Phase 5: Audit Intelligence** - New vs recurring issue tracking, trend snapshots, suggested actions
-- [ ] **Phase 6: Operational Readiness** - Health checks, subscription monitoring, Slack slash command
+- [ ] **Phase 5: Audit Intelligence** - New vs recurring issue tracking, trend snapshots, suggested actions per finding
+- [ ] **Phase 6: Conversational Agent** - Atlas responds to natural language in Slack, answers pipeline questions, and presents suggest+confirm flow for fixes
+- [ ] **Phase 7: Graduated Autonomy** - Confidence scoring, auto-promotion of fix types, anomaly detection, undo capability
+- [ ] **Phase 8: Operational Readiness** - Health checks, subscription monitoring, Slack alerts for degraded state
 
 ## Phase Details
 
 ### Phase 1: Foundation
-**Goal:** A running FastAPI service deployed on Railway with working GHL, Calendly, and Slack API clients, structured logging, and a health endpoint -- ready to receive business logic.
+**Goal:** A running FastAPI service deployed on Railway with working GHL, Calendly, Slack (incoming webhooks + Events API), and Claude Opus 4.6 API clients, SQLite persistent storage, structured logging, and a health endpoint -- ready to receive business logic.
 **Depends on:** Nothing (first phase)
-**Requirements:** INFRA-01, INFRA-03, INFRA-06, INFRA-07
+**Requirements:** INFRA-01, INFRA-03, INFRA-06, INFRA-07, INFRA-08, INFRA-09, INFRA-10
 **Success Criteria** (what must be TRUE):
   1. GET /health on the Railway production URL returns a 200 response with service status
   2. GHL client can fetch an opportunity by ID from the live AHG pipeline and return its custom fields
-  3. Slack client can post a test message to #sales-pipeline
-  4. All log output is structured JSON with correlation IDs visible in Railway's log viewer
-  5. Application fails fast on startup if any required environment variable is missing
+  3. Slack client can post a test message to #sales-pipeline AND receive an @mention event via Events API
+  4. Claude client can send a prompt to Opus 4.6 and receive a response
+  5. All log output is structured JSON with correlation IDs visible in Railway's log viewer
 **Plans:** TBD
 
 Plans:
-- [ ] 01-01: FastAPI scaffold, config, logging, Railway deploy
-- [ ] 01-02: GHL, Calendly, and Slack API clients with rate limiting and retry
+- [ ] 01-01: FastAPI scaffold, config, structured logging, Railway deploy
+- [ ] 01-02: GHL, Calendly, Slack (webhook + Events API), and Claude API clients with rate limiting and retry
+- [ ] 01-03: SQLite persistent storage layer (DLQ, audit snapshots, interaction log, idempotency keys)
 
 ---
 
@@ -60,17 +64,16 @@ Plans:
 ### Phase 3: Webhook Hardening
 **Goal:** Failed webhooks are captured with full context for investigation and replay, GHL writes are verified after execution, and the entire pipeline can be tested in dry-run mode without touching GHL.
 **Depends on:** Phase 2
-**Requirements:** EVNT-10, EVNT-11, EVNT-12, INFRA-08
+**Requirements:** EVNT-10, EVNT-11, EVNT-12
 **Success Criteria** (what must be TRUE):
   1. After every GHL field write, Atlas reads the opportunity back and confirms the fields persisted -- Slack alert if verification fails
   2. When a webhook fails processing, the full payload, error context, and retry count are stored in the dead letter queue and retrievable via API
   3. Sending a webhook with X-Atlas-Dry-Run header logs the intended GHL writes but makes no API calls to GHL
-  4. Persistent storage (SQLite) holds DLQ entries, idempotency keys, and audit snapshots across Railway restarts
 **Plans:** TBD
 
 Plans:
 - [ ] 03-01: Read-back verification and dry-run mode
-- [ ] 03-02: Dead letter queue with persistent SQLite storage
+- [ ] 03-02: Dead letter queue storage and retrieval API
 
 ---
 
@@ -94,8 +97,8 @@ Plans:
 ---
 
 ### Phase 5: Audit Intelligence
-**Goal:** The daily audit digest distinguishes new issues from recurring ones, tracks trends over time, and includes actionable suggested fixes for each finding.
-**Depends on:** Phase 3 (persistent storage), Phase 4
+**Goal:** The daily audit digest distinguishes new issues from recurring ones, tracks trends over time, and includes actionable suggested fixes for each finding -- laying the foundation for conversational suggest+confirm.
+**Depends on:** Phase 3 (persistent storage proven), Phase 4
 **Requirements:** AUDIT-10, AUDIT-11, AUDIT-12
 **Success Criteria** (what must be TRUE):
   1. Each audit finding in the Slack digest is tagged as NEW or STILL OPEN (X days) based on comparison with previous audit results
@@ -109,34 +112,73 @@ Plans:
 
 ---
 
-### Phase 6: Operational Readiness
-**Goal:** Atlas monitors its own health -- verifying Calendly subscriptions are active, exposing system status via health endpoint and Slack slash command, and alerting when something is wrong.
+### Phase 6: Conversational Agent
+**Goal:** Atlas responds to @mentions and DMs in Slack with natural language, answers pipeline questions using live audit data, presents audit findings as actionable suggestions with approve/reject flow, writes approved fixes to GHL, and logs every interaction.
+**Depends on:** Phase 5 (suggested actions needed for suggest+confirm flow)
+**Requirements:** CONV-01, CONV-02, CONV-03, CONV-04, CONV-05, NOTIF-04
+**Success Criteria** (what must be TRUE):
+  1. @Atlas in #sales-pipeline with "what's stale?" returns a natural language summary of stale deals from the latest audit
+  2. @Atlas with "show Henry's issues" returns findings filtered to Henry Mashburn's assigned opportunities
+  3. When Atlas suggests a fix (e.g., "Set Industry Type to Hemp on [opp]?") and user replies "yes", the field is written to GHL and Atlas confirms the update
+  4. Every suggestion, approval, and rejection is stored in the interaction log with full context (who, what opp, what field, timestamp)
+  5. /atlas status in Slack returns system health summary including last webhook, last audit, and success rate
+**Plans:** TBD
+
+Plans:
+- [ ] 06-01: Slack Events API handler for @mentions and DMs, Claude-powered response generation
+- [ ] 06-02: Pipeline query tools (stale, missing, per-user filtering) wired to Claude tool use
+- [ ] 06-03: Suggest+confirm conversational flow with GHL write-back and interaction logging
+
+---
+
+### Phase 7: Graduated Autonomy
+**Goal:** Atlas tracks approval rates per fix type, auto-promotes high-confidence fixes from suggest to auto-fix, reports auto-fixed issues in the daily digest, detects anomalies that should trigger reversion to suggest+confirm, and supports undo via conversation.
+**Depends on:** Phase 6 (needs interaction history to compute confidence)
+**Requirements:** CONV-06, CONV-07, CONV-08, CONV-09, CONV-10
+**Success Criteria** (what must be TRUE):
+  1. Each fix type (e.g., "Set Industry Type", "Set Appointment Status") has a confidence score computed from its approval/rejection history
+  2. A fix type with >90% approval rate sustained for 2+ weeks is auto-promoted -- Atlas applies the fix without asking and logs it
+  3. Auto-fixed issues appear in the daily digest as "Atlas auto-fixed 3 issues overnight" with details
+  4. If a previously auto-promoted fix type's approval rate drops (e.g., user undoes multiple auto-fixes), Atlas reverts that type to suggest+confirm
+  5. User can say "undo that" or "revert Industry Type on [opp]" and Atlas reverses the last auto-fix
+**Plans:** TBD
+
+Plans:
+- [ ] 07-01: Confidence scoring engine and approval rate tracking per fix type
+- [ ] 07-02: Auto-promotion rules, daily digest integration for auto-fixes
+- [ ] 07-03: Anomaly detection (reversion trigger) and conversational undo
+
+---
+
+### Phase 8: Operational Readiness
+**Goal:** Atlas monitors its own health -- verifying Calendly subscriptions are active, exposing system status via health endpoint, and alerting when something is wrong.
 **Depends on:** Phase 2, Phase 4
-**Requirements:** INFRA-04, INFRA-05, NOTIF-03, NOTIF-04
+**Requirements:** INFRA-04, INFRA-05, NOTIF-03
 **Success Criteria** (what must be TRUE):
   1. On every startup, Atlas verifies Calendly webhook subscriptions are active and posts a Slack alert if any are missing or disabled
   2. GET /health returns last webhook received timestamp, last audit run timestamp, and current processing status
   3. If Calendly webhook subscriptions become disabled, a Slack alert fires within the next health check cycle
-  4. /atlas status in Slack returns a system health summary including last webhook time, last audit time, and recent success rate
 **Plans:** TBD
 
 Plans:
-- [ ] 06-01: Subscription health check on startup and periodic verification
-- [ ] 06-02: Enhanced health endpoint and Slack slash command
+- [ ] 08-01: Subscription health check on startup and periodic verification
+- [ ] 08-02: Enhanced health endpoint with operational metrics
 
 ---
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 Note: Phase 4 depends on Phase 1 (not Phase 3), so Phases 3 and 4 could execute in parallel.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|---------------|--------|-----------|
-| 1. Foundation | 0/2 | Not started | - |
+| 1. Foundation | 0/3 | Not started | - |
 | 2. Webhook Event Handler | 0/3 | Not started | - |
 | 3. Webhook Hardening | 0/2 | Not started | - |
 | 4. Pipeline Audit | 0/3 | Not started | - |
 | 5. Audit Intelligence | 0/2 | Not started | - |
-| 6. Operational Readiness | 0/2 | Not started | - |
+| 6. Conversational Agent | 0/3 | Not started | - |
+| 7. Graduated Autonomy | 0/3 | Not started | - |
+| 8. Operational Readiness | 0/2 | Not started | - |

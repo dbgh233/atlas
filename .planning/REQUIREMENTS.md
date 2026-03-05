@@ -105,60 +105,60 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| EVNT-01 | TBD | Pending |
-| EVNT-02 | TBD | Pending |
-| EVNT-03 | TBD | Pending |
-| EVNT-04 | TBD | Pending |
-| EVNT-05 | TBD | Pending |
-| EVNT-06 | TBD | Pending |
-| EVNT-07 | TBD | Pending |
-| EVNT-08 | TBD | Pending |
-| EVNT-09 | TBD | Pending |
-| EVNT-10 | TBD | Pending |
-| EVNT-11 | TBD | Pending |
-| EVNT-12 | TBD | Pending |
-| AUDIT-01 | TBD | Pending |
-| AUDIT-02 | TBD | Pending |
-| AUDIT-03 | TBD | Pending |
-| AUDIT-04 | TBD | Pending |
-| AUDIT-05 | TBD | Pending |
-| AUDIT-06 | TBD | Pending |
-| AUDIT-07 | TBD | Pending |
-| AUDIT-08 | TBD | Pending |
-| AUDIT-09 | TBD | Pending |
-| AUDIT-10 | TBD | Pending |
-| AUDIT-11 | TBD | Pending |
-| AUDIT-12 | TBD | Pending |
-| CONV-01 | TBD | Pending |
-| CONV-02 | TBD | Pending |
-| CONV-03 | TBD | Pending |
-| CONV-04 | TBD | Pending |
-| CONV-05 | TBD | Pending |
-| CONV-06 | TBD | Pending |
-| CONV-07 | TBD | Pending |
-| CONV-08 | TBD | Pending |
-| CONV-09 | TBD | Pending |
-| CONV-10 | TBD | Pending |
-| NOTIF-01 | TBD | Pending |
-| NOTIF-02 | TBD | Pending |
-| NOTIF-03 | TBD | Pending |
-| NOTIF-04 | TBD | Pending |
-| INFRA-01 | TBD | Pending |
-| INFRA-02 | TBD | Pending |
-| INFRA-03 | TBD | Pending |
-| INFRA-04 | TBD | Pending |
-| INFRA-05 | TBD | Pending |
-| INFRA-06 | TBD | Pending |
-| INFRA-07 | TBD | Pending |
-| INFRA-08 | TBD | Pending |
-| INFRA-09 | TBD | Pending |
-| INFRA-10 | TBD | Pending |
+| EVNT-01 | Phase 2 | Pending |
+| EVNT-02 | Phase 2 | Pending |
+| EVNT-03 | Phase 2 | Pending |
+| EVNT-04 | Phase 2 | Pending |
+| EVNT-05 | Phase 2 | Pending |
+| EVNT-06 | Phase 2 | Pending |
+| EVNT-07 | Phase 2 | Pending |
+| EVNT-08 | Phase 2 | Pending |
+| EVNT-09 | Phase 2 | Pending |
+| EVNT-10 | Phase 3 | Pending |
+| EVNT-11 | Phase 3 | Pending |
+| EVNT-12 | Phase 3 | Pending |
+| AUDIT-01 | Phase 4 | Pending |
+| AUDIT-02 | Phase 4 | Pending |
+| AUDIT-03 | Phase 4 | Pending |
+| AUDIT-04 | Phase 4 | Pending |
+| AUDIT-05 | Phase 4 | Pending |
+| AUDIT-06 | Phase 4 | Pending |
+| AUDIT-07 | Phase 4 | Pending |
+| AUDIT-08 | Phase 4 | Pending |
+| AUDIT-09 | Phase 4 | Pending |
+| AUDIT-10 | Phase 5 | Pending |
+| AUDIT-11 | Phase 5 | Pending |
+| AUDIT-12 | Phase 5 | Pending |
+| CONV-01 | Phase 6 | Pending |
+| CONV-02 | Phase 6 | Pending |
+| CONV-03 | Phase 6 | Pending |
+| CONV-04 | Phase 6 | Pending |
+| CONV-05 | Phase 6 | Pending |
+| CONV-06 | Phase 7 | Pending |
+| CONV-07 | Phase 7 | Pending |
+| CONV-08 | Phase 7 | Pending |
+| CONV-09 | Phase 7 | Pending |
+| CONV-10 | Phase 7 | Pending |
+| NOTIF-01 | Phase 2 | Pending |
+| NOTIF-02 | Phase 4 | Pending |
+| NOTIF-03 | Phase 8 | Pending |
+| NOTIF-04 | Phase 6 | Pending |
+| INFRA-01 | Phase 1 | Pending |
+| INFRA-02 | Phase 2 | Pending |
+| INFRA-03 | Phase 1 | Pending |
+| INFRA-04 | Phase 8 | Pending |
+| INFRA-05 | Phase 8 | Pending |
+| INFRA-06 | Phase 1 | Pending |
+| INFRA-07 | Phase 1 | Pending |
+| INFRA-08 | Phase 1 | Pending |
+| INFRA-09 | Phase 1 | Pending |
+| INFRA-10 | Phase 1 | Pending |
 
 **Coverage:**
 - v1 requirements: 48 total
-- Mapped to phases: 0
-- Unmapped: 48 ⚠️
+- Mapped to phases: 48
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-04*
-*Last updated: 2026-03-05 after adding conversational agent + learning requirements*
+*Last updated: 2026-03-05 after roadmap rebuild with conversational agent + graduated autonomy*
