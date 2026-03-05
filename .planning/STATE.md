@@ -5,33 +5,34 @@
 See: .planning/PROJECT.md (updated 2026-03-05)
 
 **Core value:** Calendly events automatically stamp the right fields on the right GHL opportunity so downstream automation workflows fire without manual intervention -- and Atlas learns from every human interaction to progressively handle more autonomously.
-**Current focus:** Phase 1 complete — ready for Phase 2
+**Current focus:** Phase 2 in progress — webhook event handler
 
 ## Current Position
 
-Phase: 1 of 8 (Foundation) — COMPLETE
-Plan: 3 of 3 complete
-Status: Phase complete, pending verification
-Last activity: 2026-03-05 -- All Phase 1 plans executed, app deployed to Railway
+Phase: 2 of 8 (Webhook Event Handler) — In progress
+Plan: 1 of 3 complete
+Status: In progress
+Last activity: 2026-03-05 -- Completed 02-01-PLAN.md (webhook endpoint + signature verification)
 
-Progress: [██░░░░░░░░] ~12%
+Progress: [██░░░░░░░░] ~16%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 3
-- Average duration: ~5 min
-- Total execution time: ~0.25 hours
+- Total plans completed: 4
+- Average duration: ~4.5 min
+- Total execution time: ~0.3 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 1. Foundation | 3 | ~15 min | ~5 min |
+| 2. Webhook Event Handler | 1 | ~3 min | ~3 min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01, 01-02, 01-03
-- Trend: steady
+- Last 5 plans: 01-01, 01-02, 01-03, 02-01
+- Trend: steady/improving
 
 *Updated after each plan completion*
 
@@ -48,6 +49,8 @@ Recent decisions affecting current work:
 - Claude Opus 4.6 for conversational agent brain (cost not a concern)
 - Railway deployment via GraphQL API + githubRepoDeploy (CLI token auth broken)
 - GitHub repo: dbgh233/atlas (public — required for Railway githubRepoDeploy)
+- CALENDLY_WEBHOOK_SECRET now required in config (no longer optional)
+- Always-200 webhook pattern established for Calendly endpoint
 
 ### Infrastructure Details
 
@@ -63,6 +66,7 @@ Recent decisions affecting current work:
 - Fix Slack webhook URL (current one returns 404)
 - Fix/verify Anthropic API key (returns 401)
 - Provide SLACK_SIGNING_SECRET (needed for Phase 2 webhook verification)
+- Set CALENDLY_WEBHOOK_SECRET in Railway environment variables
 
 ### Blockers/Concerns
 
@@ -74,5 +78,5 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-03-05
-Stopped at: Phase 1 execution complete, running verification
+Stopped at: Completed 02-01-PLAN.md (webhook endpoint)
 Resume file: None
