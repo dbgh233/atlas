@@ -11,6 +11,7 @@ import structlog
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
+from app.modules.webhooks.matcher import match_opportunity
 from app.modules.webhooks.parser import filter_event, parse_webhook_payload
 from app.modules.webhooks.signature import verify_signature
 
@@ -82,19 +83,57 @@ async def receive_calendly_webhook(request: Request) -> JSONResponse:
                 },
             )
 
-        # 5. Event accepted — matching + field writes come in Plans 02-02 and 02-03
+        # 5. Match event to GHL opportunity
         log.info(
             "webhook_accepted",
             event_type=event.event_type,
             event_name=event.event_name,
             email=event.invitee_email,
         )
+
+        ghl_client = request.app.state.ghl_client
+        match_result = await match_opportunity(ghl_client, event)
+
+        if match_result.opportunity is None:
+            log.warning(
+                "webhook_match_failed",
+                reason=match_result.match_reason,
+                event_type=event.event_type,
+                email=event.invitee_email,
+            )
+            try:
+                await slack_client.send_message(
+                    f":mag: Atlas: Webhook received but no matching GHL opportunity found.\n"
+                    f"- Event: {event.event_type}\n"
+                    f"- Email: {event.invitee_email}\n"
+                    f"- Event Name: {event.event_name}\n"
+                    f"- Reason: {match_result.match_reason}"
+                )
+            except Exception:
+                log.error("slack_alert_failed", alert_type="match_failed")
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "status": "match_failed",
+                    "reason": match_result.match_reason,
+                },
+            )
+
+        log.info(
+            "webhook_matched",
+            opp_id=match_result.opportunity_id,
+            method=match_result.match_method,
+            appointment_type=match_result.appointment_type,
+        )
+
+        # 6. Field writes come in Plan 02-03
         return JSONResponse(
             status_code=200,
             content={
-                "status": "accepted",
-                "event_type": event.event_type,
-                "event_name": event.event_name,
+                "status": "matched",
+                "opportunity_id": match_result.opportunity_id,
+                "match_method": match_result.match_method,
+                "appointment_type": match_result.appointment_type,
             },
         )
 
