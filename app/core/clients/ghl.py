@@ -80,7 +80,8 @@ class GHLClient:
             headers=self._headers,
         )
         resp.raise_for_status()
-        return resp.json()
+        data = resp.json()
+        return data.get("opportunity", data)
 
     @retry(**_retry_config)
     async def search_opportunities(
@@ -146,7 +147,8 @@ class GHLClient:
             headers=self._headers,
         )
         resp.raise_for_status()
-        return resp.json()
+        data = resp.json()
+        return data.get("contact", data)
 
     @retry(**_retry_config)
     async def search_contacts(self, query: str) -> list[dict]:
