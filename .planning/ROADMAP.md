@@ -33,12 +33,12 @@ Atlas delivers pipeline intelligence in three layers: Calendly webhook event han
   3. Slack client can post a test message to #sales-pipeline AND receive an @mention event via Events API
   4. Claude client can send a prompt to Opus 4.6 and receive a response
   5. All log output is structured JSON with correlation IDs visible in Railway's log viewer
-**Plans:** TBD
+**Plans:** 3 plans in 2 waves
 
 Plans:
-- [ ] 01-01: FastAPI scaffold, config, structured logging, Railway deploy
-- [ ] 01-02: GHL, Calendly, Slack (webhook + Events API), and Claude API clients with rate limiting and retry
-- [ ] 01-03: SQLite persistent storage layer (DLQ, audit snapshots, interaction log, idempotency keys)
+- [ ] 01-01-PLAN.md -- FastAPI scaffold, config, structured logging, health endpoint, Railway deploy
+- [ ] 01-02-PLAN.md -- GHL, Calendly, Slack, and Claude API clients with retry and dependency injection
+- [ ] 01-03-PLAN.md -- SQLite persistent storage (4 tables, migration system, repository classes)
 
 ---
 
