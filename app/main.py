@@ -21,6 +21,7 @@ from app.core.clients.slack import SlackClient
 from app.core.config import get_settings
 from app.core.database import Database
 from app.core.logging import setup_logging
+from app.modules.webhooks.router import router as webhooks_router
 from app.slack_app import slack_handler
 
 
@@ -187,3 +188,10 @@ async def test_clients(request: Request):
         log.error("test_claude_failed", error=str(e))
 
     return results
+
+
+# ---------------------------------------------------------------------------
+# Module routers
+# ---------------------------------------------------------------------------
+
+app.include_router(webhooks_router, prefix="/webhooks")

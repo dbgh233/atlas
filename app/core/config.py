@@ -39,8 +39,8 @@ class Settings(BaseSettings):
     log_json_format: bool = True
     log_level: str = "INFO"
 
-    # --- Calendly webhook (optional for Phase 1) ---
-    calendly_webhook_secret: str = ""
+    # --- Calendly webhook (required for webhook verification) ---
+    calendly_webhook_secret: str
 
     model_config = {
         "env_file": ".env",
