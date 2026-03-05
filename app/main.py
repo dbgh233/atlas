@@ -22,6 +22,7 @@ from app.core.config import get_settings
 from app.core.database import Database
 from app.core.logging import setup_logging
 from app.modules.admin.dlq_router import dlq_router
+from app.modules.audit.router import router as audit_router
 from app.modules.webhooks.router import admin_router as webhooks_admin_router
 from app.modules.webhooks.router import router as webhooks_router
 from app.slack_app import slack_handler
@@ -80,10 +81,44 @@ async def lifespan(app: FastAPI):
         web_client=AsyncWebClient(token=settings.slack_bot_token) if settings.slack_bot_token else None,
     )
 
-    # Scheduler
-    app.state.scheduler = AsyncIOScheduler()
+    # Scheduler with daily audit at 8 AM EST (AUDIT-01)
+    app.state.scheduler = AsyncIOScheduler(timezone="US/Eastern")
+
+    async def _scheduled_audit():
+        """Run daily pipeline audit and send Slack digest."""
+        from app.modules.audit.digest import format_digest
+        from app.modules.audit.engine import run_audit
+
+        audit_log = structlog.get_logger()
+        audit_log.info("scheduled_audit_start")
+        try:
+            result = await run_audit(app.state.ghl_client)
+            digest_text = format_digest(result)
+            await app.state.slack_client.send_message(digest_text)
+            audit_log.info(
+                "scheduled_audit_complete",
+                total_opps=result.total_opportunities,
+                total_issues=result.total_issues,
+            )
+        except Exception as e:
+            audit_log.error("scheduled_audit_error", error=str(e), exc_info=True)
+            try:
+                await app.state.slack_client.send_message(
+                    f":x: Atlas: Scheduled audit FAILED — {e}"
+                )
+            except Exception:
+                pass
+
+    app.state.scheduler.add_job(
+        _scheduled_audit,
+        "cron",
+        hour=8,
+        minute=0,
+        day_of_week="mon-fri",
+        id="daily_audit",
+    )
     app.state.scheduler.start()
-    log.info("scheduler_started")
+    log.info("scheduler_started", jobs=["daily_audit_8am_est"])
 
     log.info("atlas_ready", clients=["ghl", "calendly", "claude", "slack"])
 
@@ -199,3 +234,4 @@ async def test_clients(request: Request):
 app.include_router(webhooks_router, prefix="/webhooks")
 app.include_router(webhooks_admin_router, prefix="/admin")
 app.include_router(dlq_router, prefix="/admin")
+app.include_router(audit_router, prefix="/audit")

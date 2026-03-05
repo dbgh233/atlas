@@ -151,6 +151,18 @@ class GHLClient:
         return data.get("contact", data)
 
     @retry(**_retry_config)
+    async def get_contact_tasks(self, contact_id: str) -> list[dict]:
+        """Fetch tasks for a contact."""
+        log.debug("ghl_get_contact_tasks", contact_id=contact_id)
+        resp = await self.http_client.get(
+            f"{self.base_url}/contacts/{contact_id}/tasks",
+            headers=self._headers,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("tasks", [])
+
+    @retry(**_retry_config)
     async def search_contacts(self, query: str) -> list[dict]:
         """Search contacts by query string."""
         log.debug("ghl_search_contacts", query=query)
