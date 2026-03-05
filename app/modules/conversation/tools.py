@@ -136,6 +136,33 @@ TOOL_DEFINITIONS = [
             "required": ["opp_id", "field_name", "new_value", "reason"],
         },
     },
+    {
+        "name": "undo_auto_fix",
+        "description": "Undo the most recent auto-fix. Optionally filter by opportunity name or field name.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "opp_name": {
+                    "type": "string",
+                    "description": "Optional: filter undo to a specific opportunity name (partial match).",
+                },
+                "field_name": {
+                    "type": "string",
+                    "description": "Optional: filter undo to a specific field name (e.g. 'Industry Type').",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "get_confidence_scores",
+        "description": "Get confidence scores and auto-promotion status for all fix types.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
 ]
 
 
@@ -217,6 +244,10 @@ async def execute_tool(
             return await _tool_get_trend(db)
         elif tool_name == "suggest_fix":
             return await _tool_suggest_fix(tool_input, ghl_client)
+        elif tool_name == "undo_auto_fix":
+            return await _tool_undo_auto_fix(db, ghl_client, tool_input)
+        elif tool_name == "get_confidence_scores":
+            return await _tool_get_confidence_scores(db)
         else:
             return f"Unknown tool: {tool_name}"
     except Exception as e:
@@ -396,3 +427,34 @@ async def _tool_suggest_fix(inp: dict, ghl_client: GHLClient) -> str:
         f"• Reason: {reason}\n\n"
         f"Reply 'yes' to apply this fix, or 'no' to skip."
     )
+
+
+async def _tool_undo_auto_fix(db: aiosqlite.Connection, ghl_client: GHLClient, inp: dict) -> str:
+    from app.modules.autonomy.auto_fix import undo_last_auto_fix
+    return await undo_last_auto_fix(
+        db=db,
+        ghl_client=ghl_client,
+        user_id="conversation",
+        opp_name_filter=inp.get("opp_name"),
+        field_filter=inp.get("field_name"),
+    )
+
+
+async def _tool_get_confidence_scores(db: aiosqlite.Connection) -> str:
+    from app.modules.autonomy.confidence import get_all_confidence
+    scores = await get_all_confidence(db)
+    if not scores:
+        return "No confidence data yet. Fix types will accumulate scores as users approve or reject suggestions."
+    lines = ["Fix Type Confidence Scores:"]
+    for s in scores:
+        status = s.get("status", "suggest")
+        rate = s.get("approval_rate", 0)
+        total = s.get("total_suggestions", 0)
+        approvals = s.get("total_approvals", 0)
+        rejections = s.get("total_rejections", 0)
+        status_str = "AUTO-FIX" if status == "auto_fix" else "suggest"
+        lines.append(
+            f"• {s.get('fix_type', '?')}: {rate:.0%} approval "
+            f"({approvals}/{total} approved, {rejections} rejected) [{status_str}]"
+        )
+    return "\n".join(lines)

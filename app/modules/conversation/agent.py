@@ -17,6 +17,7 @@ from anthropic import AsyncAnthropic
 from app.core.clients.ghl import GHLClient
 from app.models.database import InteractionRepository
 from app.modules.audit.rules import FIELD_NAMES
+from app.modules.autonomy.confidence import record_approval, record_rejection, record_suggestion
 from app.modules.conversation.tools import TOOL_DEFINITIONS, execute_tool
 
 log = structlog.get_logger()
@@ -176,9 +177,10 @@ class ConversationAgent:
                             "content": result,
                         })
 
-                        # If this is a suggest_fix, store pending fix
+                        # If this is a suggest_fix, store pending fix and record suggestion
                         if block.name == "suggest_fix" and "PENDING_FIX:" in result:
                             self._store_pending_fix(channel_id, result, block.input)
+                            await record_suggestion(self.db, block.input.get("field_name", ""))
 
                 messages.append({"role": "user", "content": tool_results})
 
@@ -228,8 +230,10 @@ class ConversationAgent:
         reject_words = {"no", "n", "skip", "cancel", "reject", "nah", "nope", "nevermind"}
 
         if lower in approve_words:
+            await record_approval(self.db, pending["field_name"])
             return await self._apply_fix(pending, user_id, channel_id)
         elif lower in reject_words:
+            await record_rejection(self.db, pending["field_name"])
             del self._pending_fixes[channel_id]
             await self.interaction_repo.add(
                 interaction_type="fix_rejected",

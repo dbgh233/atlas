@@ -86,13 +86,18 @@ async def lifespan(app: FastAPI):
     app.state.scheduler = AsyncIOScheduler(timezone="US/Eastern")
 
     async def _scheduled_audit():
-        """Run daily pipeline audit with tagging, snapshot, and Slack digest."""
+        """Run daily pipeline audit with tagging, snapshot, auto-fixes, and Slack digest."""
         from app.modules.audit.digest import format_digest
         from app.modules.audit.engine import run_audit
         from app.modules.audit.tracker import (
             get_trend_comparison,
             save_snapshot,
             tag_findings,
+        )
+        from app.modules.autonomy.auto_fix import (
+            format_auto_fix_digest,
+            get_recent_auto_fixes,
+            run_auto_fixes,
         )
 
         audit_log = structlog.get_logger()
@@ -103,12 +108,37 @@ async def lifespan(app: FastAPI):
             await save_snapshot(app.state.db, result, tagged, run_type="scheduled")
             trend = await get_trend_comparison(app.state.db)
             trend_summary = trend.get("summary") if trend.get("available") else None
+
+            # Run auto-fixes for promoted fix types (CONV-07)
+            findings_data = [
+                {
+                    "category": f.finding.category,
+                    "opp_id": f.finding.opp_id,
+                    "opp_name": f.finding.opp_name,
+                    "field_name": f.finding.field_name,
+                    "suggested_action": f.finding.suggested_action,
+                }
+                for f in tagged
+            ]
+            auto_fixed = await run_auto_fixes(
+                app.state.db, app.state.ghl_client, findings_data
+            )
+
+            # Build digest
             digest_text = format_digest(result, tagged=tagged, trend_summary=trend_summary)
+
+            # Append auto-fix summary (CONV-08)
+            if auto_fixed:
+                auto_digest = format_auto_fix_digest(auto_fixed)
+                if auto_digest:
+                    digest_text += "\n\n" + auto_digest
+
             await app.state.slack_client.send_message(digest_text)
             audit_log.info(
                 "scheduled_audit_complete",
                 total_opps=result.total_opportunities,
                 total_issues=result.total_issues,
+                auto_fixed=len(auto_fixed),
             )
         except Exception as e:
             audit_log.error("scheduled_audit_error", error=str(e), exc_info=True)
