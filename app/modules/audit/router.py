@@ -1,4 +1,4 @@
-"""Audit router — manual trigger and results endpoint."""
+"""Audit router — manual trigger, results, and trend endpoint."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 
 from app.modules.audit.digest import format_digest
 from app.modules.audit.engine import run_audit
+from app.modules.audit.tracker import get_trend_comparison, save_snapshot, tag_findings
 
 log = structlog.get_logger()
 
@@ -16,18 +17,26 @@ router = APIRouter(tags=["audit"])
 
 @router.post("/run")
 async def trigger_audit(request: Request) -> JSONResponse:
-    """Run a full pipeline audit and return results + send Slack digest.
-
-    AUDIT-02: Manual trigger returns JSON AND sends Slack digest.
-    """
+    """Run a full pipeline audit, tag findings, save snapshot, send Slack digest."""
     ghl_client = request.app.state.ghl_client
     slack_client = request.app.state.slack_client
+    db = request.app.state.db
 
     try:
         result = await run_audit(ghl_client)
 
-        # Send Slack digest
-        digest_text = format_digest(result)
+        # Tag findings as NEW or STILL OPEN
+        tagged = await tag_findings(db, result)
+
+        # Save snapshot for trend tracking
+        await save_snapshot(db, result, tagged, run_type="manual")
+
+        # Get trend summary
+        trend = await get_trend_comparison(db)
+        trend_summary = trend.get("summary") if trend.get("available") else None
+
+        # Send Slack digest with tags
+        digest_text = format_digest(result, tagged=tagged, trend_summary=trend_summary)
         try:
             await slack_client.send_message(digest_text)
         except Exception as e:
@@ -36,16 +45,18 @@ async def trigger_audit(request: Request) -> JSONResponse:
         # Build JSON response
         findings_json = [
             {
-                "category": f.category,
-                "opp_id": f.opp_id,
-                "opp_name": f.opp_name,
-                "stage": f.stage,
-                "assigned_to": f.assigned_to,
-                "description": f.description,
-                "field_name": f.field_name,
-                "suggested_action": f.suggested_action,
+                "category": tf.finding.category,
+                "opp_id": tf.finding.opp_id,
+                "opp_name": tf.finding.opp_name,
+                "stage": tf.finding.stage,
+                "assigned_to": tf.finding.assigned_to,
+                "description": tf.finding.description,
+                "field_name": tf.finding.field_name,
+                "suggested_action": tf.finding.suggested_action,
+                "tag": tf.tag,
+                "days_open": tf.days_open,
             }
-            for f in result.findings
+            for tf in tagged
         ]
 
         return JSONResponse(
@@ -59,12 +70,30 @@ async def trigger_audit(request: Request) -> JSONResponse:
                     "missing_fields": len(result.missing_fields),
                     "stale_deals": len(result.stale_deals),
                     "overdue_tasks": len(result.overdue_tasks),
+                    "new_issues": sum(1 for tf in tagged if tf.tag == "NEW"),
+                    "recurring_issues": sum(1 for tf in tagged if tf.tag != "NEW"),
                 },
+                "trend": trend if trend.get("available") else None,
             },
         )
 
     except Exception as e:
         log.error("audit_run_error", error=str(e), exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "error": str(e)},
+        )
+
+
+@router.get("/trend")
+async def get_audit_trend(request: Request) -> JSONResponse:
+    """Get week-over-week audit trend comparison."""
+    db = request.app.state.db
+    try:
+        trend = await get_trend_comparison(db)
+        return JSONResponse(status_code=200, content=trend)
+    except Exception as e:
+        log.error("audit_trend_error", error=str(e), exc_info=True)
         return JSONResponse(
             status_code=500,
             content={"status": "error", "error": str(e)},

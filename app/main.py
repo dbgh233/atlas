@@ -85,15 +85,24 @@ async def lifespan(app: FastAPI):
     app.state.scheduler = AsyncIOScheduler(timezone="US/Eastern")
 
     async def _scheduled_audit():
-        """Run daily pipeline audit and send Slack digest."""
+        """Run daily pipeline audit with tagging, snapshot, and Slack digest."""
         from app.modules.audit.digest import format_digest
         from app.modules.audit.engine import run_audit
+        from app.modules.audit.tracker import (
+            get_trend_comparison,
+            save_snapshot,
+            tag_findings,
+        )
 
         audit_log = structlog.get_logger()
         audit_log.info("scheduled_audit_start")
         try:
             result = await run_audit(app.state.ghl_client)
-            digest_text = format_digest(result)
+            tagged = await tag_findings(app.state.db, result)
+            await save_snapshot(app.state.db, result, tagged, run_type="scheduled")
+            trend = await get_trend_comparison(app.state.db)
+            trend_summary = trend.get("summary") if trend.get("available") else None
+            digest_text = format_digest(result, tagged=tagged, trend_summary=trend_summary)
             await app.state.slack_client.send_message(digest_text)
             audit_log.info(
                 "scheduled_audit_complete",
