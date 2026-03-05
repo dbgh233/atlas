@@ -114,9 +114,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | EVNT-07 | Phase 2 | Complete |
 | EVNT-08 | Phase 2 | Complete |
 | EVNT-09 | Phase 2 | Complete |
-| EVNT-10 | Phase 3 | Pending |
-| EVNT-11 | Phase 3 | Pending |
-| EVNT-12 | Phase 3 | Pending |
+| EVNT-10 | Phase 3 | Complete |
+| EVNT-11 | Phase 3 | Complete |
+| EVNT-12 | Phase 3 | Complete |
 | AUDIT-01 | Phase 4 | Pending |
 | AUDIT-02 | Phase 4 | Pending |
 | AUDIT-03 | Phase 4 | Pending |

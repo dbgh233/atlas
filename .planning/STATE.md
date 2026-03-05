@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-03-05)
 
 **Core value:** Calendly events automatically stamp the right fields on the right GHL opportunity so downstream automation workflows fire without manual intervention -- and Atlas learns from every human interaction to progressively handle more autonomously.
-**Current focus:** Phase 2 complete — ready for Phase 3
+**Current focus:** Phase 3 complete — ready for Phase 4
 
 ## Current Position
 
-Phase: 2 of 8 (Webhook Event Handler) — COMPLETE
-Plan: 3 of 3 complete
-Status: Phase complete, verified, deployed
-Last activity: 2026-03-05 -- All Phase 2 plans executed, deployed to Railway, verified 5/5
+Phase: 3 of 8 (Webhook Hardening) — COMPLETE
+Plan: 2 of 2 complete
+Status: Phase complete, deployed, verified
+Last activity: 2026-03-05 -- Both Phase 3 plans executed, deployed to Railway, all endpoints verified
 
-Progress: [████░░░░░░] ~25%
+Progress: [████░░░░░░] ~35%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 6
-- Average duration: ~3.5 min
-- Total execution time: ~0.35 hours
+- Total plans completed: 8
+- Average duration: ~3 min
+- Total execution time: ~0.4 hours
 
 **By Phase:**
 
@@ -29,9 +29,10 @@ Progress: [████░░░░░░] ~25%
 |-------|-------|-------|----------|
 | 1. Foundation | 3 | ~15 min | ~5 min |
 | 2. Webhook Event Handler | 3 | ~8 min | ~2.7 min |
+| 3. Webhook Hardening | 2 | ~5 min | ~2.5 min |
 
 **Recent Trend:**
-- Last 5 plans: 01-02, 01-03, 02-01, 02-02, 02-03
+- Last 5 plans: 02-01, 02-02, 02-03, 03-01, 03-02
 - Trend: steady/improving
 
 *Updated after each plan completion*
@@ -56,6 +57,8 @@ Recent decisions affecting current work:
 - Idempotency key format: calendly:{event_type}:{invitee_uri}
 - Admin endpoints on separate router at /admin prefix
 - Write errors recorded in both idempotency table and DLQ
+- Read-back verification is informational — write success is not changed by verification failure
+- DLQ admin API at /admin/dlq with list, get, retry endpoints
 
 ### Infrastructure Details
 
@@ -80,5 +83,5 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-03-05
-Stopped at: Phase 2 complete, verified, proceeding to Phase 3
+Stopped at: Phase 3 complete, proceeding to Phase 4
 Resume file: None
