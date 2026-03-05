@@ -114,12 +114,16 @@ class GHLClient:
 
             # Check for next page via sort array
             meta = data.get("meta", {})
-            if not meta.get("nextPageUrl"):
+            if not isinstance(meta, dict) or not meta.get("nextPageUrl"):
                 break
-            sort_arr = meta.get("startAfter", [])
-            if len(sort_arr) >= 2:
+            sort_arr = meta.get("startAfter")
+            start_after_id = meta.get("startAfterId")
+            if isinstance(sort_arr, list) and len(sort_arr) >= 2:
                 params["startAfter"] = sort_arr[0]
                 params["startAfterId"] = sort_arr[1]
+            elif sort_arr is not None and start_after_id is not None:
+                params["startAfter"] = sort_arr
+                params["startAfterId"] = start_after_id
             else:
                 break
 
