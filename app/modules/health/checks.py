@@ -19,7 +19,8 @@ from app.models.database import AuditRepository, DLQRepository
 log = structlog.get_logger()
 
 # Expected webhook events that Atlas needs
-REQUIRED_EVENTS = {"invitee.canceled", "invitee.no_show"}
+# Calendly uses full event names: "invitee.canceled", "invitee_no_show.created"
+REQUIRED_EVENTS = {"invitee.canceled", "invitee_no_show.created"}
 
 
 async def check_calendly_subscriptions(
