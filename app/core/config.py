@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     # --- Calendly webhook (required for webhook verification) ---
     calendly_webhook_secret: str
 
+    # --- Railway ---
+    railway_domain: str = "atlas-production-248a.up.railway.app"
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",

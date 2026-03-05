@@ -26,6 +26,7 @@ from app.modules.audit.router import router as audit_router
 from app.modules.webhooks.router import admin_router as webhooks_admin_router
 from app.modules.webhooks.router import router as webhooks_router
 from app.modules.conversation.agent import ConversationAgent
+from app.modules.health.checks import check_calendly_subscriptions, get_operational_status
 from app.slack_app import set_agent, slack_handler
 
 
@@ -157,8 +158,29 @@ async def lifespan(app: FastAPI):
         day_of_week="mon-fri",
         id="daily_audit",
     )
+
+    async def _subscription_health_check():
+        """Periodic Calendly subscription health check (NOTIF-03)."""
+        health_log = structlog.get_logger()
+        try:
+            callback_url = f"https://{settings.railway_domain}/webhooks/calendly"
+            result = await check_calendly_subscriptions(
+                app.state.calendly_client, app.state.slack_client, callback_url,
+            )
+            app.state.subscription_status = result
+            health_log.info("periodic_subscription_check", healthy=result.get("healthy"))
+        except Exception as e:
+            health_log.error("periodic_subscription_check_error", error=str(e))
+
+    app.state.scheduler.add_job(
+        _subscription_health_check,
+        "interval",
+        hours=6,
+        id="subscription_health_check",
+    )
+
     app.state.scheduler.start()
-    log.info("scheduler_started", jobs=["daily_audit_8am_est"])
+    log.info("scheduler_started", jobs=["daily_audit_8am_est", "subscription_check_6h"])
 
     # Conversational agent (Phase 6)
     conversation_agent = ConversationAgent(
@@ -169,6 +191,22 @@ async def lifespan(app: FastAPI):
     app.state.conversation_agent = conversation_agent
     set_agent(conversation_agent)
     log.info("conversation_agent_ready")
+
+    # Startup subscription health check (INFRA-04)
+    try:
+        callback_url = f"https://{settings.railway_domain}/webhooks/calendly" if hasattr(settings, "railway_domain") and settings.railway_domain else ""
+        if callback_url:
+            sub_status = await check_calendly_subscriptions(
+                app.state.calendly_client, app.state.slack_client, callback_url,
+            )
+            app.state.subscription_status = sub_status
+            log.info("startup_subscription_check", healthy=sub_status.get("healthy"))
+        else:
+            app.state.subscription_status = None
+            log.info("startup_subscription_check_skipped", reason="no_railway_domain")
+    except Exception as e:
+        app.state.subscription_status = None
+        log.warning("startup_subscription_check_failed", error=str(e))
 
     log.info("atlas_ready", clients=["ghl", "calendly", "claude", "slack", "conversation"])
 
@@ -217,15 +255,24 @@ app.add_middleware(CorrelationIdMiddleware)
 
 
 @app.get("/health")
-async def health():
-    """Health check endpoint for Railway and monitoring."""
+async def health(request: Request):
+    """Enhanced health endpoint with operational metrics (INFRA-05)."""
     settings = get_settings()
-    return {
-        "status": "healthy",
-        "service": settings.app_name,
-        "version": settings.app_version,
-        "timestamp": datetime.now(UTC).isoformat(),
-    }
+    try:
+        ops = await get_operational_status(
+            request.app.state.db,
+            subscription_status=getattr(request.app.state, "subscription_status", None),
+        )
+        ops["service"] = settings.app_name
+        ops["version"] = settings.app_version
+        return ops
+    except Exception:
+        return {
+            "status": "healthy",
+            "service": settings.app_name,
+            "version": settings.app_version,
+            "timestamp": datetime.now(UTC).isoformat(),
+        }
 
 
 @app.post("/slack/events")
