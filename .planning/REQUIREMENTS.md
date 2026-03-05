@@ -105,15 +105,15 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| EVNT-01 | Phase 2 | Pending |
-| EVNT-02 | Phase 2 | Pending |
-| EVNT-03 | Phase 2 | Pending |
-| EVNT-04 | Phase 2 | Pending |
-| EVNT-05 | Phase 2 | Pending |
-| EVNT-06 | Phase 2 | Pending |
-| EVNT-07 | Phase 2 | Pending |
-| EVNT-08 | Phase 2 | Pending |
-| EVNT-09 | Phase 2 | Pending |
+| EVNT-01 | Phase 2 | Complete |
+| EVNT-02 | Phase 2 | Complete |
+| EVNT-03 | Phase 2 | Complete |
+| EVNT-04 | Phase 2 | Complete |
+| EVNT-05 | Phase 2 | Complete |
+| EVNT-06 | Phase 2 | Complete |
+| EVNT-07 | Phase 2 | Complete |
+| EVNT-08 | Phase 2 | Complete |
+| EVNT-09 | Phase 2 | Complete |
 | EVNT-10 | Phase 3 | Pending |
 | EVNT-11 | Phase 3 | Pending |
 | EVNT-12 | Phase 3 | Pending |
@@ -139,12 +139,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CONV-08 | Phase 7 | Pending |
 | CONV-09 | Phase 7 | Pending |
 | CONV-10 | Phase 7 | Pending |
-| NOTIF-01 | Phase 2 | Pending |
+| NOTIF-01 | Phase 2 | Complete |
 | NOTIF-02 | Phase 4 | Pending |
 | NOTIF-03 | Phase 8 | Pending |
 | NOTIF-04 | Phase 6 | Pending |
 | INFRA-01 | Phase 1 | Complete |
-| INFRA-02 | Phase 2 | Pending |
+| INFRA-02 | Phase 2 | Complete |
 | INFRA-03 | Phase 1 | Complete |
 | INFRA-04 | Phase 8 | Pending |
 | INFRA-05 | Phase 8 | Pending |
