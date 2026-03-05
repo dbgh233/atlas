@@ -74,17 +74,21 @@ async def write_field_updates(
     # Build list of (field_id, value, field_name) tuples based on event + type
     updates: list[tuple[str, str, str]] = []
 
-    if event.event_type == "invitee.no_show" and appointment_type == "Discovery":
+    # Calendly event types: "invitee.canceled", "invitee_no_show.created"
+    is_no_show = "no_show" in event.event_type
+    is_canceled = "canceled" in event.event_type
+
+    if is_no_show and appointment_type == "Discovery":
         updates.append((FIELD_DISCOVERY_OUTCOME, "No Show", "Discovery Outcome"))
         updates.append((FIELD_APPOINTMENT_STATUS, "No-Show", "Appointment Status"))
 
-    elif event.event_type == "invitee.no_show" and appointment_type == "Onboarding":
+    elif is_no_show and appointment_type == "Onboarding":
         updates.append((FIELD_APPOINTMENT_STATUS, "No-Show", "Appointment Status"))
 
-    elif event.event_type == "invitee.canceled" and appointment_type == "Discovery":
+    elif is_canceled and appointment_type == "Discovery":
         updates.append((FIELD_APPOINTMENT_STATUS, "Cancelled", "Appointment Status"))
 
-    elif event.event_type == "invitee.canceled" and appointment_type == "Onboarding":
+    elif is_canceled and appointment_type == "Onboarding":
         updates.append((FIELD_APPOINTMENT_STATUS, "Cancelled", "Appointment Status"))
 
     else:
