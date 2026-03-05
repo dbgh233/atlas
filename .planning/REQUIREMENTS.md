@@ -143,16 +143,16 @@ Which phases cover which requirements. Updated during roadmap creation.
 | NOTIF-02 | Phase 4 | Pending |
 | NOTIF-03 | Phase 8 | Pending |
 | NOTIF-04 | Phase 6 | Pending |
-| INFRA-01 | Phase 1 | Pending |
+| INFRA-01 | Phase 1 | Complete |
 | INFRA-02 | Phase 2 | Pending |
-| INFRA-03 | Phase 1 | Pending |
+| INFRA-03 | Phase 1 | Complete |
 | INFRA-04 | Phase 8 | Pending |
 | INFRA-05 | Phase 8 | Pending |
-| INFRA-06 | Phase 1 | Pending |
-| INFRA-07 | Phase 1 | Pending |
-| INFRA-08 | Phase 1 | Pending |
-| INFRA-09 | Phase 1 | Pending |
-| INFRA-10 | Phase 1 | Pending |
+| INFRA-06 | Phase 1 | Complete |
+| INFRA-07 | Phase 1 | Complete |
+| INFRA-08 | Phase 1 | Complete |
+| INFRA-09 | Phase 1 | Complete |
+| INFRA-10 | Phase 1 | Complete |
 
 **Coverage:**
 - v1 requirements: 48 total
