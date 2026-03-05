@@ -10,17 +10,17 @@ See: .planning/PROJECT.md (updated 2026-03-05)
 ## Current Position
 
 Phase: 2 of 8 (Webhook Event Handler) — In progress
-Plan: 1 of 3 complete
+Plan: 2 of 3 complete
 Status: In progress
-Last activity: 2026-03-05 -- Completed 02-01-PLAN.md (webhook endpoint + signature verification)
+Last activity: 2026-03-05 -- Completed 02-02-PLAN.md (opportunity matcher)
 
-Progress: [██░░░░░░░░] ~16%
+Progress: [███░░░░░░░] ~20%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 4
-- Average duration: ~4.5 min
+- Total plans completed: 5
+- Average duration: ~4 min
 - Total execution time: ~0.3 hours
 
 **By Phase:**
@@ -28,10 +28,10 @@ Progress: [██░░░░░░░░] ~16%
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 1. Foundation | 3 | ~15 min | ~5 min |
-| 2. Webhook Event Handler | 1 | ~3 min | ~3 min |
+| 2. Webhook Event Handler | 2 | ~5 min | ~2.5 min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01, 01-02, 01-03, 02-01
+- Last 5 plans: 01-01, 01-02, 01-03, 02-01, 02-02
 - Trend: steady/improving
 
 *Updated after each plan completion*
@@ -51,6 +51,8 @@ Recent decisions affecting current work:
 - GitHub repo: dbgh233/atlas (public — required for Railway githubRepoDeploy)
 - CALENDLY_WEBHOOK_SECRET now required in config (no longer optional)
 - Always-200 webhook pattern established for Calendly endpoint
+- GHL Appointment Type is source of truth over Calendly event name (EVNT-06)
+- Ambiguous fallback matches resolved by most-recent createdAt
 
 ### Infrastructure Details
 
@@ -78,5 +80,5 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-03-05
-Stopped at: Completed 02-01-PLAN.md (webhook endpoint)
+Stopped at: Completed 02-02-PLAN.md (opportunity matcher)
 Resume file: None
