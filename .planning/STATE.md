@@ -5,33 +5,33 @@
 See: .planning/PROJECT.md (updated 2026-03-05)
 
 **Core value:** Calendly events automatically stamp the right fields on the right GHL opportunity so downstream automation workflows fire without manual intervention -- and Atlas learns from every human interaction to progressively handle more autonomously.
-**Current focus:** Phase 2 in progress — webhook event handler
+**Current focus:** Phase 2 complete (code) — deployment + subscription setup pending (Task 3 checkpoint)
 
 ## Current Position
 
-Phase: 2 of 8 (Webhook Event Handler) — In progress
-Plan: 2 of 3 complete
-Status: In progress
-Last activity: 2026-03-05 -- Completed 02-02-PLAN.md (opportunity matcher)
+Phase: 2 of 8 (Webhook Event Handler) — Phase complete (code)
+Plan: 3 of 3 complete (Task 3 checkpoint: human action required)
+Status: Phase 2 code complete, awaiting deployment + Calendly subscription setup
+Last activity: 2026-03-05 -- Completed 02-03-PLAN.md (field writes, idempotency, notifications)
 
-Progress: [███░░░░░░░] ~20%
+Progress: [████░░░░░░] ~25%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 5
-- Average duration: ~4 min
-- Total execution time: ~0.3 hours
+- Total plans completed: 6
+- Average duration: ~3.5 min
+- Total execution time: ~0.35 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 1. Foundation | 3 | ~15 min | ~5 min |
-| 2. Webhook Event Handler | 2 | ~5 min | ~2.5 min |
+| 2. Webhook Event Handler | 3 | ~8 min | ~2.7 min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01, 01-02, 01-03, 02-01, 02-02
+- Last 5 plans: 01-02, 01-03, 02-01, 02-02, 02-03
 - Trend: steady/improving
 
 *Updated after each plan completion*
@@ -53,6 +53,10 @@ Recent decisions affecting current work:
 - Always-200 webhook pattern established for Calendly endpoint
 - GHL Appointment Type is source of truth over Calendly event name (EVNT-06)
 - Ambiguous fallback matches resolved by most-recent createdAt
+- GHL API uses field_value (not value) in customFields array
+- Idempotency key format: calendly:{event_type}:{invitee_uri}
+- Admin endpoints on separate router at /admin prefix (not nested under /webhooks)
+- Write errors recorded in both idempotency table and DLQ
 
 ### Infrastructure Details
 
@@ -68,6 +72,7 @@ Recent decisions affecting current work:
 - Fix Slack webhook URL (current one returns 404)
 - Fix/verify Anthropic API key (returns 401)
 - Provide SLACK_SIGNING_SECRET (needed for Phase 2 webhook verification)
+- **Deploy Phase 2 code and create Calendly webhook subscription (02-03 Task 3 checkpoint)**
 - Set CALENDLY_WEBHOOK_SECRET in Railway environment variables
 
 ### Blockers/Concerns
@@ -80,5 +85,5 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-03-05
-Stopped at: Completed 02-02-PLAN.md (opportunity matcher)
+Stopped at: Completed 02-03-PLAN.md (field writes, idempotency, notifications) — Task 3 checkpoint pending
 Resume file: None
