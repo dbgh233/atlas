@@ -13,6 +13,7 @@ dependencies = [
     "structlog>=25.5.0",
     "orjson>=3.10.0",
     "slack-bolt>=1.27.0",
+    "aiohttp>=3.9.0",
     "anthropic>=0.84.0",
     "aiosqlite>=0.20.0",
     "asgi-correlation-id>=4.0.0",
