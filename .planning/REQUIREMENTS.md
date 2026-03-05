@@ -126,9 +126,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | AUDIT-07 | Phase 4 | Complete |
 | AUDIT-08 | Phase 4 | Complete |
 | AUDIT-09 | Phase 4 | Complete |
-| AUDIT-10 | Phase 5 | Pending |
-| AUDIT-11 | Phase 5 | Pending |
-| AUDIT-12 | Phase 5 | Pending |
+| AUDIT-10 | Phase 5 | Complete |
+| AUDIT-11 | Phase 5 | Complete |
+| AUDIT-12 | Phase 5 | Complete |
 | CONV-01 | Phase 6 | Pending |
 | CONV-02 | Phase 6 | Pending |
 | CONV-03 | Phase 6 | Pending |
