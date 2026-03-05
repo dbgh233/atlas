@@ -1,7 +1,7 @@
 # Requirements: Atlas
 
-**Defined:** 2026-03-04
-**Core Value:** Calendly events automatically stamp the right fields on the right GHL opportunity so downstream automation workflows fire without manual intervention.
+**Defined:** 2026-03-04, updated 2026-03-05
+**Core Value:** Calendly events automatically stamp the right fields on the right GHL opportunity so downstream automation workflows fire without manual intervention — and Atlas learns from every human interaction to progressively handle more autonomously.
 
 ## v1 Requirements
 
@@ -44,6 +44,19 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **NOTIF-03**: Slack alert when Calendly webhook subscriptions are missing or disabled
 - [ ] **NOTIF-04**: Slack slash command /atlas status — returns system health summary (last webhook, last audit, success rate)
 
+### Conversational Agent
+
+- [ ] **CONV-01**: Atlas responds to @mentions in #sales-pipeline and DMs with natural language (powered by Claude Opus 4.6)
+- [ ] **CONV-02**: Atlas can answer pipeline questions — "what's stale?", "show Henry's issues", "what's missing on [opp name]?"
+- [ ] **CONV-03**: Audit findings presented as actionable suggestions with approve/reject conversational flow
+- [ ] **CONV-04**: When user approves a suggested fix, Atlas writes the update to GHL and confirms
+- [ ] **CONV-05**: Every human interaction logged with full context (suggestion, response, opp context, timestamp, who)
+- [ ] **CONV-06**: Confidence scoring per fix type based on approval history
+- [ ] **CONV-07**: Graduated autonomy — fix types auto-promote from suggest→auto-fix when approval rate >90% for 2+ weeks
+- [ ] **CONV-08**: Auto-fixed issues reported in daily digest ("Atlas auto-fixed 3 issues overnight")
+- [ ] **CONV-09**: Anomaly detection — if approval rate drops on auto-fix type, revert to suggest+confirm
+- [ ] **CONV-10**: User can undo auto-fixes via conversation ("undo that" or "revert Industry Type on [opp]")
+
 ### Infrastructure
 
 - [ ] **INFRA-01**: Structured JSON logging for all operations with correlation IDs
@@ -53,24 +66,13 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **INFRA-05**: Health check endpoint — GET /health returns last webhook received, last audit run, processing status
 - [ ] **INFRA-06**: FastAPI application with modular architecture (core/ + modules/ pattern for future extensibility)
 - [ ] **INFRA-07**: Railway deployment with environment variable configuration
-- [ ] **INFRA-08**: Persistent storage for DLQ, audit snapshots, and idempotency keys (Railway-compatible — SQLite or Redis)
+- [ ] **INFRA-08**: Persistent storage for DLQ, audit snapshots, interaction log, and idempotency keys (Railway-compatible — SQLite)
+- [ ] **INFRA-09**: Claude Opus 4.6 API client for conversational intelligence (Anthropic SDK)
+- [ ] **INFRA-10**: Slack Events API integration for receiving @mentions and DMs (Agent/Assistant mode)
 
 ## v2 Requirements
 
 Deferred to future release. Tracked but not in current roadmap.
-
-### Suggest + Confirm (Human-in-the-Loop Fix Flow)
-
-- **FIX-01**: Audit findings include interactive Slack buttons (Approve Fix / Dismiss)
-- **FIX-02**: When approved, Atlas writes the suggested fix to GHL
-- **FIX-03**: Track approval/rejection rates per fix type for auto-fix transition readiness
-- **FIX-04**: When fix type approval rate >95% for 2+ weeks, flag for auto-fix promotion
-
-### Auto-Fix (Fully Agentic)
-
-- **AUTOFIX-01**: Graduated autonomy — auto-fix types individually promoted based on approval rate data
-- **AUTOFIX-02**: Auto-fixed issues logged and summarized in daily digest (what Atlas fixed overnight)
-- **AUTOFIX-03**: Revert capability — human can undo auto-fixes from Slack
 
 ### Future Modules
 
@@ -80,6 +82,7 @@ Deferred to future release. Tracked but not in current roadmap.
 - **FUTURE-04**: Configurable audit rules without code deploy (admin config file or D1)
 - **FUTURE-05**: Automated DLQ replay with rate limiting
 - **FUTURE-06**: Deal scoring — rule-based then ML-based (needs 3-6 months historical data)
+- **FUTURE-07**: MCP server — expose Atlas capabilities as tools for Claude (trigger audit, query pipeline, manage DLQ)
 
 ## Out of Scope
 
@@ -92,7 +95,8 @@ Deferred to future release. Tracked but not in current roadmap.
 | Admin UI | Config file sufficient for v1; CEO doesn't need a UI for rule changes |
 | Bi-directional CRM sync | Atlas is one-way: external events → GHL field writes. No GHL → Calendly sync |
 | Email notifications | Team lives in Slack; one channel is enough for v1 |
-| AI-powered deal scoring (v1) | No training data yet; rule-based audit must run 3-6 months first |
+| AI-powered deal scoring (v1) | No training data yet; interaction log must accumulate 3-6 months first |
+| Full chatbot personality / small talk | Atlas is a pipeline agent, not a general assistant. Responds only to pipeline-related queries |
 | Multi-provider webhooks (v1) | Architecture supports it (adapter pattern) but only Calendly adapter in v1 |
 
 ## Traceability
@@ -101,48 +105,60 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| EVNT-01 | Phase 2 | Pending |
-| EVNT-02 | Phase 2 | Pending |
-| EVNT-03 | Phase 2 | Pending |
-| EVNT-04 | Phase 2 | Pending |
-| EVNT-05 | Phase 2 | Pending |
-| EVNT-06 | Phase 2 | Pending |
-| EVNT-07 | Phase 2 | Pending |
-| EVNT-08 | Phase 2 | Pending |
-| EVNT-09 | Phase 2 | Pending |
-| EVNT-10 | Phase 3 | Pending |
-| EVNT-11 | Phase 3 | Pending |
-| EVNT-12 | Phase 3 | Pending |
-| AUDIT-01 | Phase 4 | Pending |
-| AUDIT-02 | Phase 4 | Pending |
-| AUDIT-03 | Phase 4 | Pending |
-| AUDIT-04 | Phase 4 | Pending |
-| AUDIT-05 | Phase 4 | Pending |
-| AUDIT-06 | Phase 4 | Pending |
-| AUDIT-07 | Phase 4 | Pending |
-| AUDIT-08 | Phase 4 | Pending |
-| AUDIT-09 | Phase 4 | Pending |
-| AUDIT-10 | Phase 5 | Pending |
-| AUDIT-11 | Phase 5 | Pending |
-| AUDIT-12 | Phase 5 | Pending |
-| NOTIF-01 | Phase 2 | Pending |
-| NOTIF-02 | Phase 4 | Pending |
-| NOTIF-03 | Phase 6 | Pending |
-| NOTIF-04 | Phase 6 | Pending |
-| INFRA-01 | Phase 1 | Pending |
-| INFRA-02 | Phase 2 | Pending |
-| INFRA-03 | Phase 1 | Pending |
-| INFRA-04 | Phase 6 | Pending |
-| INFRA-05 | Phase 6 | Pending |
-| INFRA-06 | Phase 1 | Pending |
-| INFRA-07 | Phase 1 | Pending |
-| INFRA-08 | Phase 3 | Pending |
+| EVNT-01 | TBD | Pending |
+| EVNT-02 | TBD | Pending |
+| EVNT-03 | TBD | Pending |
+| EVNT-04 | TBD | Pending |
+| EVNT-05 | TBD | Pending |
+| EVNT-06 | TBD | Pending |
+| EVNT-07 | TBD | Pending |
+| EVNT-08 | TBD | Pending |
+| EVNT-09 | TBD | Pending |
+| EVNT-10 | TBD | Pending |
+| EVNT-11 | TBD | Pending |
+| EVNT-12 | TBD | Pending |
+| AUDIT-01 | TBD | Pending |
+| AUDIT-02 | TBD | Pending |
+| AUDIT-03 | TBD | Pending |
+| AUDIT-04 | TBD | Pending |
+| AUDIT-05 | TBD | Pending |
+| AUDIT-06 | TBD | Pending |
+| AUDIT-07 | TBD | Pending |
+| AUDIT-08 | TBD | Pending |
+| AUDIT-09 | TBD | Pending |
+| AUDIT-10 | TBD | Pending |
+| AUDIT-11 | TBD | Pending |
+| AUDIT-12 | TBD | Pending |
+| CONV-01 | TBD | Pending |
+| CONV-02 | TBD | Pending |
+| CONV-03 | TBD | Pending |
+| CONV-04 | TBD | Pending |
+| CONV-05 | TBD | Pending |
+| CONV-06 | TBD | Pending |
+| CONV-07 | TBD | Pending |
+| CONV-08 | TBD | Pending |
+| CONV-09 | TBD | Pending |
+| CONV-10 | TBD | Pending |
+| NOTIF-01 | TBD | Pending |
+| NOTIF-02 | TBD | Pending |
+| NOTIF-03 | TBD | Pending |
+| NOTIF-04 | TBD | Pending |
+| INFRA-01 | TBD | Pending |
+| INFRA-02 | TBD | Pending |
+| INFRA-03 | TBD | Pending |
+| INFRA-04 | TBD | Pending |
+| INFRA-05 | TBD | Pending |
+| INFRA-06 | TBD | Pending |
+| INFRA-07 | TBD | Pending |
+| INFRA-08 | TBD | Pending |
+| INFRA-09 | TBD | Pending |
+| INFRA-10 | TBD | Pending |
 
 **Coverage:**
-- v1 requirements: 36 total
-- Mapped to phases: 36
-- Unmapped: 0
+- v1 requirements: 48 total
+- Mapped to phases: 0
+- Unmapped: 48 ⚠️
 
 ---
 *Requirements defined: 2026-03-04*
-*Last updated: 2026-03-04 after roadmap creation*
+*Last updated: 2026-03-05 after adding conversational agent + learning requirements*

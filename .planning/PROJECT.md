@@ -6,7 +6,7 @@ Atlas is the pipeline intelligence agent for Alternative Horizons Group (AHG). I
 
 ## Core Value
 
-Calendly events automatically stamp the right fields on the right GHL opportunity so downstream automation workflows fire without manual intervention. If nothing else works, this must.
+Calendly events automatically stamp the right fields on the right GHL opportunity so downstream automation workflows fire without manual intervention — and Atlas learns from every human interaction to progressively handle more autonomously. If nothing else works, the webhook→field-stamp pipeline must.
 
 ## Requirements
 
@@ -73,9 +73,12 @@ Calendly events automatically stamp the right fields on the right GHL opportunit
 
 - **Deployment**: Railway (existing account, Python)
 - **Framework**: FastAPI + APScheduler (async webhooks, auto-docs, cron scheduling)
-- **GHL API Key**: New dedicated PIT to be created (scoped to Atlas)
-- **Calendly API Key**: To be created during setup
-- **Slack Webhook**: To be created during setup (incoming webhook for #sales-pipeline)
+- **LLM**: Claude Opus 4.6 via Anthropic SDK (conversational agent brain)
+- **GHL API Key**: `pit-c104e9dd-ab1c-40a6-9b8f-0b04c62f0948` (dedicated Atlas PIT)
+- **Calendly API Key**: Existing PAT (shared, Calendly only allows one)
+- **Slack App**: "Atlas" (App ID: A0AKF2XPJF2) — Agent/Assistant mode, incoming webhooks, slash commands
+- **Slack Webhook**: `https://hooks.slack.com/services/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`
+- **Anthropic API Key**: Provided (Opus 4.6)
 - **GHL API Rate Limits**: Respect rate limits, implement retry with backoff
 - **Webhook Verification**: Validate Calendly webhook signatures before processing
 - **No Destructive Writes**: Only custom field updates — never stage moves, never create/delete records
@@ -85,6 +88,8 @@ Calendly events automatically stamp the right fields on the right GHL opportunit
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
 | FastAPI + APScheduler | Async for webhooks, built-in OpenAPI docs, APScheduler for cron — clean fit | — Pending |
+| Claude Opus 4.6 for conversational agent | Most capable model for reliable tool use and natural language understanding. Cost is not a concern. | — Pending |
+| Conversational from day 1 | Learning loop needs interaction data to enable graduated autonomy. Deferring conversational = deferring the data that makes Atlas smart. | — Pending |
 | Railway deployment | Existing account, supports Python, persistent process for scheduler | — Pending |
 | Dedicated GHL PIT | Isolate Atlas's API access from other projects for security/auditability | — Pending |
 | Primary match on Calendly Event ID, fallback on email | Event ID is deterministic; email fallback handles cases where Event ID wasn't stamped yet | — Pending |
@@ -92,4 +97,4 @@ Calendly events automatically stamp the right fields on the right GHL opportunit
 | Modular codebase for future plugins | Lead intake, reconciliation, Zap absorption designed as pluggable modules | — Pending |
 
 ---
-*Last updated: 2026-03-04 after initialization*
+*Last updated: 2026-03-05 after adding conversational agent scope*
