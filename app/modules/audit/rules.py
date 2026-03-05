@@ -5,6 +5,8 @@ All GHL field IDs and stage IDs from TECHNICAL_REFERENCE.md.
 
 from __future__ import annotations
 
+from datetime import datetime, UTC
+
 # ---------------------------------------------------------------------------
 # Pipeline stages
 # ---------------------------------------------------------------------------
@@ -113,3 +115,11 @@ STAGE_REQUIRED_FIELDS: dict[str, list[str]] = {
 
 # Placeholder opportunity name to flag
 PLACEHOLDER_OPP_NAME = "New Merchant - Update Name"
+
+# ---------------------------------------------------------------------------
+# Grandfather cutoff — don't flag missing fields on deals created before this
+# These custom fields were added to GHL around this date. Older deals
+# legitimately don't have this data and shouldn't be flagged as "missing."
+# Set to None to audit all deals regardless of age.
+# ---------------------------------------------------------------------------
+AUDIT_CUTOFF_DATE: datetime | None = datetime(2026, 3, 1, tzinfo=UTC)

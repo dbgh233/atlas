@@ -13,6 +13,7 @@ import structlog
 
 from app.core.clients.ghl import GHLClient
 from app.modules.audit.rules import (
+    AUDIT_CUTOFF_DATE,
     FIELD_LEAD_SOURCE,
     FIELD_NAMES,
     PLACEHOLDER_OPP_NAME,
@@ -101,6 +102,19 @@ async def run_audit(ghl_client: GHLClient) -> AuditResult:
         if stage_id in SKIP_STAGES:
             continue
 
+        # Grandfather cutoff — skip missing field checks for old deals
+        opp_created_at = opp.get("createdAt", "")
+        is_grandfathered = False
+        if AUDIT_CUTOFF_DATE and opp_created_at:
+            try:
+                if isinstance(opp_created_at, str):
+                    created_dt = datetime.fromisoformat(opp_created_at.replace("Z", "+00:00"))
+                else:
+                    created_dt = datetime.fromtimestamp(opp_created_at / 1000, tz=UTC)
+                is_grandfathered = created_dt < AUDIT_CUTOFF_DATE
+            except (ValueError, TypeError):
+                pass
+
         # AUDIT-07: Check placeholder name
         if opp_name == PLACEHOLDER_OPP_NAME:
             finding = AuditFinding(
@@ -116,7 +130,8 @@ async def run_audit(ghl_client: GHLClient) -> AuditResult:
             result.missing_fields.append(finding)
 
         # AUDIT-03: Missing required fields per stage
-        required_fields = STAGE_REQUIRED_FIELDS.get(stage_id, [])
+        # Skip missing field checks for grandfathered deals (created before fields existed)
+        required_fields = STAGE_REQUIRED_FIELDS.get(stage_id, []) if not is_grandfathered else []
         for field_id in required_fields:
             value = _get_custom_field_value(opp, field_id)
             if not value:
@@ -134,13 +149,13 @@ async def run_audit(ghl_client: GHLClient) -> AuditResult:
                 result.findings.append(finding)
                 result.missing_fields.append(finding)
 
-        # AUDIT-06: Contact-level checks
+        # AUDIT-06: Contact-level checks (skip for grandfathered deals)
         contact_id = opp.get("contactId", "")
         contact = opp.get("contact") or {}
         if not isinstance(contact, dict):
             contact = {}
 
-        if contact_id:
+        if contact_id and not is_grandfathered:
             email = contact.get("email", "")
             if not email:
                 finding = AuditFinding(
