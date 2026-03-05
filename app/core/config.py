@@ -26,7 +26,7 @@ class Settings(BaseSettings):
 
     # --- Slack (required) ---
     slack_bot_token: str
-    slack_signing_secret: str
+    slack_signing_secret: str = ""  # Required for Slack Events API (Phase 2+)
     slack_webhook_url: str = ""
 
     # --- Anthropic (required) ---
