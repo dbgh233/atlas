@@ -7,12 +7,16 @@ values and writes them to the matched opportunity.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import structlog
 
 from app.core.clients.ghl import GHLClient
 from app.modules.webhooks.matcher import MatchResult
 from app.modules.webhooks.parser import WebhookEvent
+
+if TYPE_CHECKING:
+    from app.core.clients.slack import SlackClient
 
 log = structlog.get_logger()
 
@@ -28,12 +32,17 @@ class FieldWriteResult:
     success: bool
     fields_written: list[dict] = field(default_factory=list)
     error: str | None = None
+    verified: bool | None = None
+    verification_details: str | None = None
 
 
 async def write_field_updates(
     ghl_client: GHLClient,
     match_result: MatchResult,
     event: WebhookEvent,
+    *,
+    dry_run: bool = False,
+    slack_client: SlackClient | None = None,
 ) -> FieldWriteResult:
     """Determine and write GHL field updates based on event type + appointment type.
 
@@ -94,6 +103,24 @@ async def write_field_updates(
     custom_fields = [{"id": field_id, "field_value": value} for field_id, value, _ in updates]
     payload = {"customFields": custom_fields}
 
+    fields_written = [
+        {"field_name": name, "field_id": fid, "value": val}
+        for fid, val, name in updates
+    ]
+
+    # Dry-run: log intended writes without calling GHL
+    if dry_run:
+        log.info(
+            "dry_run_write_skipped",
+            opp_id=match_result.opportunity_id,
+            payload=payload,
+        )
+        return FieldWriteResult(
+            success=True,
+            fields_written=fields_written,
+            verified=None,
+        )
+
     try:
         await ghl_client.update_opportunity(match_result.opportunity_id, payload)
     except Exception as e:
@@ -108,19 +135,78 @@ async def write_field_updates(
             error=str(e),
         )
 
-    fields_written = [
-        {"field_name": name, "field_id": fid, "value": val}
-        for fid, val, name in updates
-    ]
-
     log.info(
         "field_write_success",
         opp_id=match_result.opportunity_id,
         fields_written=[f["field_name"] for f in fields_written],
     )
 
+    # Read-back verification
+    verified, verification_details = await _verify_fields(
+        ghl_client, match_result.opportunity_id, updates, slack_client
+    )
+
     return FieldWriteResult(
         success=True,
         fields_written=fields_written,
         error=None,
+        verified=verified,
+        verification_details=verification_details,
     )
+
+
+async def _verify_fields(
+    ghl_client: GHLClient,
+    opp_id: str,
+    updates: list[tuple[str, str, str]],
+    slack_client: SlackClient | None,
+) -> tuple[bool, str | None]:
+    """Read opportunity back from GHL and verify written fields persisted."""
+    from app.modules.webhooks.notifications import notify_verification_failure
+
+    try:
+        opp = await ghl_client.get_opportunity(opp_id)
+    except Exception as e:
+        details = f"Read-back failed: {e}"
+        log.error("field_verify_read_failed", opp_id=opp_id, error=str(e))
+        if slack_client:
+            try:
+                await notify_verification_failure(slack_client, opp_id, details)
+            except Exception:
+                pass
+        return False, details
+
+    custom_fields = opp.get("customFields", [])
+    # Build lookup: field_id -> value (GHL returns "value" on reads)
+    field_map: dict[str, str] = {}
+    if isinstance(custom_fields, list):
+        for cf in custom_fields:
+            field_map[cf.get("id", "")] = cf.get("value", "")
+    elif isinstance(custom_fields, dict):
+        for fid, val in custom_fields.items():
+            field_map[fid] = val
+
+    mismatches: list[str] = []
+    for field_id, expected_value, field_name in updates:
+        actual = field_map.get(field_id, "<not found>")
+        if actual != expected_value:
+            mismatches.append(
+                f"{field_name}: expected '{expected_value}', got '{actual}'"
+            )
+
+    if mismatches:
+        details = "; ".join(mismatches)
+        log.warning(
+            "field_verify_mismatch",
+            opp_id=opp_id,
+            mismatches=mismatches,
+        )
+        if slack_client:
+            try:
+                await notify_verification_failure(slack_client, opp_id, details)
+            except Exception:
+                pass
+        return False, details
+
+    log.info("field_verify_ok", opp_id=opp_id)
+    return True, None

@@ -90,6 +90,23 @@ async def notify_webhook_filtered(
         log.error("notify_webhook_filtered_failed", error=str(e))
 
 
+async def notify_verification_failure(
+    slack_client: SlackClient,
+    opp_id: str,
+    details: str,
+) -> None:
+    """Notify Slack that GHL write verification failed (field mismatch or read error)."""
+    try:
+        await slack_client.send_message(
+            f":warning: Atlas: GHL write verification FAILED\n"
+            f"- Opportunity: {opp_id}\n"
+            f"- Details: {details}\n"
+            f"- Action: Check GHL opportunity manually"
+        )
+    except Exception as e:
+        log.error("notify_verification_failure_failed", error=str(e))
+
+
 async def notify_signature_invalid(
     slack_client: SlackClient,
 ) -> None:
