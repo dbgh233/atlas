@@ -5,23 +5,22 @@
 See: .planning/PROJECT.md (updated 2026-03-05)
 
 **Core value:** Calendly events automatically stamp the right fields on the right GHL opportunity so downstream automation workflows fire without manual intervention -- and Atlas learns from every human interaction to progressively handle more autonomously.
-**Current focus:** Phase 3 complete — ready for Phase 4
+**Current focus:** Phase 4 complete — ready for Phase 5
 
 ## Current Position
 
-Phase: 3 of 8 (Webhook Hardening) — COMPLETE
-Plan: 2 of 2 complete
-Status: Phase complete, deployed, verified
-Last activity: 2026-03-05 -- Both Phase 3 plans executed, deployed to Railway, all endpoints verified
+Phase: 4 of 8 (Pipeline Audit) — COMPLETE
+Status: Phase complete, deployed, verified live (82 opps scanned, 941 issues found)
+Last activity: 2026-03-05 -- Phase 4 built and verified live
 
-Progress: [████░░░░░░] ~35%
+Progress: [██████░░░░] ~50%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 8
+- Total plans completed: 10 (counting Phase 4 as 2 logical units)
 - Average duration: ~3 min
-- Total execution time: ~0.4 hours
+- Total execution time: ~0.5 hours
 
 **By Phase:**
 
@@ -30,19 +29,11 @@ Progress: [████░░░░░░] ~35%
 | 1. Foundation | 3 | ~15 min | ~5 min |
 | 2. Webhook Event Handler | 3 | ~8 min | ~2.7 min |
 | 3. Webhook Hardening | 2 | ~5 min | ~2.5 min |
-
-**Recent Trend:**
-- Last 5 plans: 02-01, 02-02, 02-03, 03-01, 03-02
-- Trend: steady/improving
-
-*Updated after each plan completion*
+| 4. Pipeline Audit | 2 | ~8 min | ~4 min |
 
 ## Accumulated Context
 
 ### Decisions
-
-Decisions are logged in PROJECT.md Key Decisions table.
-Recent decisions affecting current work:
 
 - Roadmap: 8-phase structure -- conversational woven in after audit, not bolted on at the end
 - Roadmap: Phases 3 and 4 can run in parallel (both depend on Phase 1, not each other)
@@ -52,11 +43,12 @@ Recent decisions affecting current work:
 - CALENDLY_WEBHOOK_SECRET now required in config (no longer optional)
 - Always-200 webhook pattern established for Calendly endpoint
 - GHL Appointment Type is source of truth over Calendly event name (EVNT-06)
-- Ambiguous fallback matches resolved by most-recent createdAt
 - GHL API uses field_value (not value) in customFields array
+- GHL pagination meta.startAfter can be int or list — handle both
+- GHL search_opportunities doesn't include contact customFields inline — need separate fetch for deep contact checks
 - Idempotency key format: calendly:{event_type}:{invitee_uri}
 - Admin endpoints on separate router at /admin prefix
-- Write errors recorded in both idempotency table and DLQ
+- Audit at /audit prefix, scheduled 8 AM EST weekdays
 - Read-back verification is informational — write success is not changed by verification failure
 - DLQ admin API at /admin/dlq with list, get, retry endpoints
 
@@ -77,11 +69,11 @@ Recent decisions affecting current work:
 ### Blockers/Concerns
 
 - Calendly PAT has webhooks:read but not webhooks:write — need updated token or manual subscription creation
-- Calendly Event ID population timing on GHL opps unknown -- validate during Phase 3
-- GHL rate limit behavior for AHG PIT key untested -- validate during Phase 4
+- GHL rate limit behavior for AHG PIT key now validated — 82 opps + tasks fetched without 429
+- Contact-level Lead Source check may have false positives (GHL search may not return contact customFields)
 
 ## Session Continuity
 
 Last session: 2026-03-05
-Stopped at: Phase 3 complete, proceeding to Phase 4
+Stopped at: Phase 4 complete, proceeding to Phase 5
 Resume file: None
