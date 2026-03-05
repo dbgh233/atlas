@@ -21,6 +21,7 @@ from app.core.clients.slack import SlackClient
 from app.core.config import get_settings
 from app.core.database import Database
 from app.core.logging import setup_logging
+from app.modules.webhooks.router import admin_router as webhooks_admin_router
 from app.modules.webhooks.router import router as webhooks_router
 from app.slack_app import slack_handler
 
@@ -195,3 +196,4 @@ async def test_clients(request: Request):
 # ---------------------------------------------------------------------------
 
 app.include_router(webhooks_router, prefix="/webhooks")
+app.include_router(webhooks_admin_router, prefix="/admin")
