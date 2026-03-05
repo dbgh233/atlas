@@ -80,6 +80,31 @@ class DLQRepository:
         )
         return _row_to_dict(await cursor.fetchone())
 
+    async def get_all(self, limit: int = 50, status: str | None = None) -> list[dict]:
+        """Return DLQ entries optionally filtered by status, ordered by created_at DESC."""
+        if status:
+            cursor = await self.db.execute(
+                "SELECT * FROM dead_letter_queue WHERE status = ? ORDER BY created_at DESC LIMIT ?",
+                (status, limit),
+            )
+        else:
+            cursor = await self.db.execute(
+                "SELECT * FROM dead_letter_queue ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            )
+        return _rows_to_dicts(await cursor.fetchall())
+
+    async def retry_entry(self, id: int) -> dict | None:
+        """Increment retry_count and set status to 'retrying'."""
+        await self.db.execute(
+            "UPDATE dead_letter_queue SET status = 'retrying', "
+            "retry_count = retry_count + 1, updated_at = datetime('now') "
+            "WHERE id = ?",
+            (id,),
+        )
+        await self.db.commit()
+        return await self.get_by_id(id)
+
 
 # ---------------------------------------------------------------------------
 # Audit Snapshots
