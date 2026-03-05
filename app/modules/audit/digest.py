@@ -41,7 +41,13 @@ def _format_section(
     findings: list[AuditFinding],
     tag_map: dict[str, str] | None = None,
 ) -> str:
-    """Format a section of findings grouped by user, with optional tags."""
+    """Format a section of findings grouped by user, then by opportunity.
+
+    Instead of one line per field, groups missing fields under each merchant:
+        *Henry Mashburn:*
+          Solaris Peptides (Onboarding Scheduled) — 10 missing
+            Appointment Type, Appointment Status, Appointment Date, ...
+    """
     if not findings:
         return ""
 
@@ -51,14 +57,35 @@ def _format_section(
     for user_id, user_findings in sorted(by_user.items(), key=lambda x: _user_display_name(x[0])):
         name = _user_display_name(user_id)
         lines.append(f"\n*{name}:*")
+
+        # Group by opportunity within user
+        by_opp: dict[str, list[AuditFinding]] = defaultdict(list)
         for f in user_findings:
-            tag = ""
-            if tag_map:
-                key = f"{f.opp_id}:{f.category}:{f.field_name or f.description}"
-                t = tag_map.get(key, "")
-                if t:
-                    tag = f" [{t}]"
-            lines.append(f"  • {f.opp_name} ({f.stage}): {f.description}{tag}")
+            by_opp[f.opp_id].append(f)
+
+        for opp_id, opp_findings in by_opp.items():
+            opp_name = opp_findings[0].opp_name
+            stage = opp_findings[0].stage
+
+            # Collect new vs recurring counts for this opp
+            new_count = 0
+            field_names: list[str] = []
+            for f in opp_findings:
+                short = (f.field_name or f.description).replace("Missing ", "").replace("Contact missing ", "")
+                tag_str = ""
+                if tag_map:
+                    key = f"{f.opp_id}:{f.category}:{f.field_name or f.description}"
+                    t = tag_map.get(key, "")
+                    if t == "NEW":
+                        new_count += 1
+                field_names.append(short)
+
+            count_label = f"{len(opp_findings)} issues"
+            if tag_map and new_count > 0:
+                count_label += f", {new_count} new"
+
+            lines.append(f"  • *{opp_name}* ({stage}) — {count_label}")
+            lines.append(f"    _{', '.join(field_names)}_")
 
     return "\n".join(lines)
 
