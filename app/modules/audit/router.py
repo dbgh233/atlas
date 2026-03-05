@@ -64,8 +64,10 @@ async def trigger_audit(request: Request) -> JSONResponse:
         )
 
     except Exception as e:
-        log.error("audit_run_error", error=str(e), exc_info=True)
+        import traceback
+        tb = traceback.format_exc()
+        log.error("audit_run_error", error=str(e), traceback=tb)
         return JSONResponse(
             status_code=500,
-            content={"status": "error", "error": str(e)},
+            content={"status": "error", "error": str(e), "traceback": tb},
         )

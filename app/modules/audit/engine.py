@@ -54,9 +54,13 @@ class AuditResult:
 
 def _get_custom_field_value(opp: dict, field_id: str) -> str | None:
     """Extract a custom field value from a GHL opportunity."""
-    custom_fields = opp.get("customFields", [])
+    custom_fields = opp.get("customFields")
+    if not custom_fields or not isinstance(custom_fields, (list, dict)):
+        return None
     if isinstance(custom_fields, list):
         for cf in custom_fields:
+            if not isinstance(cf, dict):
+                continue
             if cf.get("id") == field_id:
                 val = cf.get("value", "")
                 if val and str(val).strip():
@@ -132,8 +136,11 @@ async def run_audit(ghl_client: GHLClient) -> AuditResult:
 
         # AUDIT-06: Contact-level checks
         contact_id = opp.get("contactId", "")
+        contact = opp.get("contact") or {}
+        if not isinstance(contact, dict):
+            contact = {}
+
         if contact_id:
-            contact = opp.get("contact", {})
             email = contact.get("email", "")
             if not email:
                 finding = AuditFinding(
@@ -149,12 +156,11 @@ async def run_audit(ghl_client: GHLClient) -> AuditResult:
                 result.missing_fields.append(finding)
 
             # Lead Source check — it's a contact-level custom field
-            # GHL search_opportunities includes contact data inline
-            contact_custom = contact.get("customFields", []) if contact else []
+            contact_custom = contact.get("customFields")
             lead_source = None
             if isinstance(contact_custom, list):
                 for cf in contact_custom:
-                    if cf.get("id") == FIELD_LEAD_SOURCE:
+                    if isinstance(cf, dict) and cf.get("id") == FIELD_LEAD_SOURCE:
                         val = cf.get("value", "")
                         if val and str(val).strip():
                             lead_source = str(val).strip()
