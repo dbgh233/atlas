@@ -42,6 +42,7 @@ async def receive_calendly_webhook(request: Request) -> JSONResponse:
     Always returns 200 to prevent Calendly retries.
     """
     event = None  # Track for error notifications
+    payload_body = b""  # Safety default for outer except DLQ write
 
     try:
         # 1. Read raw body and headers
@@ -51,6 +52,10 @@ async def receive_calendly_webhook(request: Request) -> JSONResponse:
         slack_client = request.app.state.slack_client
         ghl_client = request.app.state.ghl_client
         db = request.app.state.db
+        dry_run = request.headers.get("X-Atlas-Dry-Run", "").lower() in ("true", "1", "yes")
+
+        if dry_run:
+            log.info("webhook_dry_run_mode")
 
         # 2. Verify signature
         if not verify_signature(payload_body, signature_header, webhook_secret):
@@ -157,7 +162,24 @@ async def receive_calendly_webhook(request: Request) -> JSONResponse:
         )
 
         # 7. Write field updates to GHL
-        write_result = await write_field_updates(ghl_client, match_result, event)
+        write_result = await write_field_updates(
+            ghl_client, match_result, event, dry_run=dry_run, slack_client=slack_client
+        )
+
+        # 7b. Dry-run: return intended writes without recording idempotency or DLQ
+        if dry_run:
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "status": "dry_run",
+                    "opportunity_id": match_result.opportunity_id,
+                    "match_method": match_result.match_method,
+                    "appointment_type": match_result.appointment_type,
+                    "fields_that_would_be_written": [
+                        f["field_name"] for f in write_result.fields_written
+                    ],
+                },
+            )
 
         # 8. Record idempotency key
         if write_result.success:
@@ -196,11 +218,34 @@ async def receive_calendly_webhook(request: Request) -> JSONResponse:
                 "fields_written": [
                     f["field_name"] for f in write_result.fields_written
                 ],
+                "verified": write_result.verified,
             },
         )
 
     except Exception as e:
         log.error("webhook_processing_error", error=str(e), exc_info=True)
+        # Write to DLQ with whatever context is available
+        try:
+            raw_body = payload_body.decode("utf-8") if isinstance(payload_body, bytes) else str(payload_body)
+        except Exception:
+            raw_body = "<unavailable>"
+        try:
+            db = request.app.state.db
+            error_ctx: dict = {}
+            if event:
+                error_ctx["event_type"] = event.event_type
+                error_ctx["invitee_email"] = event.invitee_email
+                error_ctx["event_name"] = event.event_name
+                error_ctx["calendly_event_uuid"] = event.calendly_event_uuid
+            await DLQRepository(db).add(
+                event_type=event.event_type if event else "unknown",
+                payload=raw_body,
+                error_message=f"Unhandled exception: {e}",
+                error_context=json.dumps(error_ctx),
+            )
+        except Exception as dlq_err:
+            log.error("dlq_write_failed_in_outer_except", error=str(dlq_err))
+        # Still send Slack notification
         try:
             slack_client = request.app.state.slack_client
             await notify_webhook_error(slack_client, event, str(e))
