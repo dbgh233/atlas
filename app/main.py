@@ -25,7 +25,8 @@ from app.modules.admin.dlq_router import dlq_router
 from app.modules.audit.router import router as audit_router
 from app.modules.webhooks.router import admin_router as webhooks_admin_router
 from app.modules.webhooks.router import router as webhooks_router
-from app.slack_app import slack_handler
+from app.modules.conversation.agent import ConversationAgent
+from app.slack_app import set_agent, slack_handler
 
 
 @asynccontextmanager
@@ -129,7 +130,17 @@ async def lifespan(app: FastAPI):
     app.state.scheduler.start()
     log.info("scheduler_started", jobs=["daily_audit_8am_est"])
 
-    log.info("atlas_ready", clients=["ghl", "calendly", "claude", "slack"])
+    # Conversational agent (Phase 6)
+    conversation_agent = ConversationAgent(
+        anthropic_client=anthropic_client,
+        ghl_client=app.state.ghl_client,
+        db=app.state.db,
+    )
+    app.state.conversation_agent = conversation_agent
+    set_agent(conversation_agent)
+    log.info("conversation_agent_ready")
+
+    log.info("atlas_ready", clients=["ghl", "calendly", "claude", "slack", "conversation"])
 
     yield
 
