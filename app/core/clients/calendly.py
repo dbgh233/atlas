@@ -148,7 +148,7 @@ class CalendlyClient:
             if page_token:
                 params["page_token"] = page_token
 
-            log.debug("calendly_list_scheduled_events", params=params)
+            log.debug("calendly_list_scheduled_events", page_count=_, has_token=bool(page_token))
             resp = await self.http_client.get(
                 f"{self.base_url}/scheduled_events",
                 headers=self._headers,

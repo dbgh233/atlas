@@ -213,7 +213,7 @@ async def run_calendly_backfill(
         try:
             invitees = await calendly_client.list_event_invitees(event_uuid)
         except Exception as exc:
-            log.warning("backfill_invitee_fetch_failed", event=event_uuid, error=str(exc))
+            log.warning("backfill_invitee_fetch_failed", calendly_event=event_uuid, error=str(exc))
             result.errors.append(f"Invitee fetch failed for {event_uuid}: {exc}")
             continue
 
@@ -237,7 +237,7 @@ async def run_calendly_backfill(
 
             if len(candidates) == 0:
                 result.skipped_no_match += 1
-                log.debug("backfill_no_match", email=email, event=event_uuid)
+                log.debug("backfill_no_match", email=email, calendly_event=event_uuid)
                 continue
 
             if len(candidates) > 1:
@@ -245,7 +245,7 @@ async def run_calendly_backfill(
                 log.warning(
                     "backfill_multi_match",
                     email=email,
-                    event=event_uuid,
+                    calendly_event=event_uuid,
                     candidates=[c.get("id") for c in candidates],
                 )
                 continue
