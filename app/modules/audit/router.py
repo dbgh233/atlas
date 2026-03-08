@@ -90,6 +90,29 @@ async def trigger_audit(request: Request) -> JSONResponse:
         )
 
 
+@router.get("/debug/opp/{opp_id}")
+async def debug_opp_fields(opp_id: str, request: Request) -> JSONResponse:
+    """Debug: show raw custom fields from search vs direct get."""
+    ghl_client = request.app.state.ghl_client
+    try:
+        # Direct get
+        direct = await ghl_client.get_opportunity(opp_id)
+        direct_cfs = direct.get("customFields", [])
+        # Search results
+        all_opps = await ghl_client.search_opportunities()
+        search_opp = next((o for o in all_opps if o.get("id") == opp_id), None)
+        search_cfs = search_opp.get("customFields", []) if search_opp else "NOT_FOUND"
+        return JSONResponse(content={
+            "opp_name": direct.get("name"),
+            "direct_cf_sample": direct_cfs[:3] if isinstance(direct_cfs, list) else direct_cfs,
+            "search_cf_sample": search_cfs[:3] if isinstance(search_cfs, list) else search_cfs,
+            "direct_cf_keys": list(direct_cfs[0].keys()) if isinstance(direct_cfs, list) and direct_cfs else [],
+            "search_cf_keys": list(search_cfs[0].keys()) if isinstance(search_cfs, list) and search_cfs else [],
+        })
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
 @router.get("/trend")
 async def get_audit_trend(request: Request) -> JSONResponse:
     """Get week-over-week audit trend comparison."""
