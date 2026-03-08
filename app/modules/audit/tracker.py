@@ -140,7 +140,7 @@ async def save_snapshot(
         "stale_deals": len(result.stale_deals),
         "overdue_tasks": sum(result.overdue_task_counts.values()) if result.overdue_task_counts else 0,
         "overdue_task_counts": result.overdue_task_counts,
-        "close_lost_missing_reason": len(result.close_lost_missing_reason),
+        "close_lost_missing_reason": result.close_lost_missing_reason,
     })
 
     run_date = datetime.now(UTC).strftime("%Y-%m-%d")

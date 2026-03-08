@@ -74,7 +74,7 @@ async def trigger_audit(request: Request) -> JSONResponse:
                     "stale_deals": len(result.stale_deals),
                     "overdue_tasks": sum(result.overdue_task_counts.values()) if result.overdue_task_counts else 0,
                     "overdue_task_counts": result.overdue_task_counts,
-                    "close_lost_missing_reason": len(result.close_lost_missing_reason),
+                    "close_lost_missing_reason": result.close_lost_missing_reason,
                     "new_issues": sum(1 for tf in tagged if tf.tag == "NEW"),
                     "recurring_issues": sum(1 for tf in tagged if tf.tag != "NEW"),
                 },

@@ -140,7 +140,7 @@ def format_digest(
     # Close Lost missing reason
     # -----------------------------------------------------------------------
     if result.close_lost_missing_reason:
-        n = len(result.close_lost_missing_reason)
+        n = result.close_lost_missing_reason
         lines.append(
             f"\n:grey_question: {n} Close Lost deal{'s' if n != 1 else ''} missing close reason"
         )
