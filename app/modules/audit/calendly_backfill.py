@@ -386,15 +386,16 @@ def _match_opp_multi_signal(
     candidates: list[dict] = []
 
     for opp in all_opps:
-        # Check if this opp already has THIS Calendly event ID
+        # Check Calendly Event ID state
         existing_event_id = _get_custom_field_value(opp, FIELD_CALENDLY_EVENT_ID)
         if existing_event_id:
-            # Already has a Calendly event — check if it's THIS event
+            # If this opp is already linked to THIS exact event, skip
+            # (we already processed this event for this opp)
             if event_uuid in existing_event_id or existing_event_id == event_uri:
-                # This opp is already linked to this event — skip (already done)
                 return []
-            # Has a DIFFERENT event — not a match for this event
-            continue
+            # Has a DIFFERENT event ID — still a candidate if it has
+            # empty Q&A fields we can fill from this newer event.
+            # Don't skip — let it through to check for missing fields.
 
         # Signal 1: Contact email match
         contact = opp.get("contact", {})
