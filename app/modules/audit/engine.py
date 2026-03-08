@@ -93,7 +93,8 @@ def _get_custom_field_value(opp: dict, field_id: str) -> str | None:
             if not isinstance(cf, dict):
                 continue
             if cf.get("id") == field_id:
-                val = cf.get("value", "")
+                # GHL uses "value" in search results and "fieldValue" in direct gets
+                val = cf.get("value") or cf.get("fieldValue") or cf.get("field_value", "")
                 if val and str(val).strip():
                     return str(val).strip()
                 return None
