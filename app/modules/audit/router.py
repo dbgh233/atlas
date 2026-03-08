@@ -6,6 +6,7 @@ import structlog
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
+from app.modules.audit.calendly_backfill import format_backfill_digest, run_calendly_backfill
 from app.modules.audit.digest import format_digest
 from app.modules.audit.engine import run_audit
 from app.modules.audit.tracker import get_trend_comparison, save_snapshot, tag_findings
@@ -35,8 +36,24 @@ async def trigger_audit(request: Request) -> JSONResponse:
         trend = await get_trend_comparison(db)
         trend_summary = trend.get("summary") if trend.get("available") else None
 
+        # Run Calendly backfill
+        calendly_client = request.app.state.calendly_client
+        backfill_result = None
+        try:
+            backfill_result = await run_calendly_backfill(
+                ghl_client, calendly_client, db, lookback_days=30
+            )
+        except Exception as e:
+            log.error("audit_backfill_failed", error=str(e))
+
         # Send Slack digest with tags
         digest_text = format_digest(result, tagged=tagged, trend_summary=trend_summary)
+
+        if backfill_result and backfill_result.actions:
+            bf_digest = format_backfill_digest(backfill_result)
+            if bf_digest:
+                digest_text += "\n\n" + bf_digest
+
         try:
             await slack_client.send_message(digest_text)
         except Exception as e:
@@ -79,6 +96,14 @@ async def trigger_audit(request: Request) -> JSONResponse:
                     "recurring_issues": sum(1 for tf in tagged if tf.tag != "NEW"),
                 },
                 "trend": trend if trend.get("available") else None,
+                "backfill": {
+                    "events_checked": backfill_result.events_checked,
+                    "events_matched": backfill_result.events_matched,
+                    "fields_written": backfill_result.fields_written,
+                    "fields_verified": backfill_result.fields_verified,
+                    "skipped_multi_match": backfill_result.skipped_multi_match,
+                    "errors": len(backfill_result.errors),
+                } if backfill_result else None,
             },
         )
 

@@ -95,6 +95,10 @@ async def lifespan(app: FastAPI):
             save_snapshot,
             tag_findings,
         )
+        from app.modules.audit.calendly_backfill import (
+            format_backfill_digest,
+            run_calendly_backfill,
+        )
         from app.modules.autonomy.auto_fix import (
             format_auto_fix_digest,
             get_recent_auto_fixes,
@@ -125,6 +129,18 @@ async def lifespan(app: FastAPI):
                 app.state.db, app.state.ghl_client, findings_data
             )
 
+            # Run Calendly backfill for missing fields
+            try:
+                backfill_result = await run_calendly_backfill(
+                    app.state.ghl_client,
+                    app.state.calendly_client,
+                    app.state.db,
+                    lookback_days=30,
+                )
+            except Exception as bf_err:
+                audit_log.error("scheduled_backfill_error", error=str(bf_err))
+                backfill_result = None
+
             # Build digest
             digest_text = format_digest(result, tagged=tagged, trend_summary=trend_summary)
 
@@ -133,6 +149,12 @@ async def lifespan(app: FastAPI):
                 auto_digest = format_auto_fix_digest(auto_fixed)
                 if auto_digest:
                     digest_text += "\n\n" + auto_digest
+
+            # Append backfill summary
+            if backfill_result and backfill_result.actions:
+                bf_digest = format_backfill_digest(backfill_result)
+                if bf_digest:
+                    digest_text += "\n\n" + bf_digest
 
             await app.state.slack_client.send_message(digest_text)
             audit_log.info(

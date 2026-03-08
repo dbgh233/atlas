@@ -111,6 +111,82 @@ class CalendlyClient:
         return data.get("collection", [])
 
     @retry(**_retry_config)
+    async def list_scheduled_events(
+        self,
+        organization_uri: str,
+        min_start_time: str | None = None,
+        max_start_time: str | None = None,
+        count: int = 100,
+        status: str = "active",
+    ) -> list[dict]:
+        """List scheduled events for the organization.
+
+        Args:
+            organization_uri: Calendly organization URI.
+            min_start_time: ISO 8601 lower bound for event start time.
+            max_start_time: ISO 8601 upper bound for event start time.
+            count: Max results per page (max 100).
+            status: "active" or "canceled".
+
+        Returns:
+            List of scheduled event resources.
+        """
+        all_events: list[dict] = []
+        params: dict = {
+            "organization": organization_uri,
+            "count": min(count, 100),
+            "status": status,
+            "sort": "start_time:desc",
+        }
+        if min_start_time:
+            params["min_start_time"] = min_start_time
+        if max_start_time:
+            params["max_start_time"] = max_start_time
+
+        page_token = None
+        for _ in range(10):  # max 10 pages = 1000 events
+            if page_token:
+                params["page_token"] = page_token
+
+            log.debug("calendly_list_scheduled_events", params=params)
+            resp = await self.http_client.get(
+                f"{self.base_url}/scheduled_events",
+                headers=self._headers,
+                params=params,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            all_events.extend(data.get("collection", []))
+
+            pagination = data.get("pagination", {})
+            page_token = pagination.get("next_page_token")
+            if not page_token:
+                break
+
+        log.info("calendly_list_events_complete", total=len(all_events))
+        return all_events
+
+    @retry(**_retry_config)
+    async def list_event_invitees(self, event_uuid: str) -> list[dict]:
+        """List invitees for a scheduled event.
+
+        Args:
+            event_uuid: The UUID of the scheduled event.
+
+        Returns:
+            List of invitee resources (includes email, name, Q&A responses).
+        """
+        log.debug("calendly_list_event_invitees", event_uuid=event_uuid)
+        resp = await self.http_client.get(
+            f"{self.base_url}/scheduled_events/{event_uuid}/invitees",
+            headers=self._headers,
+            params={"count": 100},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("collection", [])
+
+    @retry(**_retry_config)
     async def create_webhook_subscription(
         self,
         organization_uri: str,
