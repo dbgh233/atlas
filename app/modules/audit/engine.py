@@ -96,14 +96,14 @@ def _get_custom_field_value(opp: dict, field_id: str) -> str | None:
                 # GHL returns different keys depending on endpoint:
                 #   Direct get: {"id": "xxx", "fieldValue": "yyy"}
                 #   Search: {"id": "xxx", "fieldValueString": "yyy", "type": "string"}
-                #   Search: {"id": "xxx", "fieldValueNumber": 123, "type": "number"}
-                val = (
-                    cf.get("value")
-                    or cf.get("fieldValue")
-                    or cf.get("fieldValueString")
-                    or cf.get("fieldValueNumber")
-                    or cf.get("field_value", "")
-                )
+                #           {"id": "xxx", "fieldValueNumber": 123, "type": "number"}
+                # Check any key starting with "fieldValue" or "value"
+                val = cf.get("value") or cf.get("field_value")
+                if not val:
+                    for key in cf:
+                        if key.startswith("fieldValue") and cf[key] is not None:
+                            val = cf[key]
+                            break
                 if val and str(val).strip():
                     return str(val).strip()
                 return None

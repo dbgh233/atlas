@@ -55,13 +55,12 @@ def _get_custom_field_value(opportunity: dict, field_id: str) -> str | None:
     if isinstance(custom_fields, list):
         for field in custom_fields:
             if isinstance(field, dict) and field.get("id") == field_id:
-                value = (
-                    field.get("value")
-                    or field.get("fieldValue")
-                    or field.get("fieldValueString")
-                    or field.get("fieldValueNumber")
-                    or field.get("field_value")
-                )
+                value = field.get("value") or field.get("field_value")
+                if not value:
+                    for key in field:
+                        if key.startswith("fieldValue") and field[key] is not None:
+                            value = field[key]
+                            break
                 return str(value) if value is not None else None
         return None
 
