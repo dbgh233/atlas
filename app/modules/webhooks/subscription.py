@@ -12,7 +12,7 @@ from app.core.clients.calendly import CalendlyClient
 
 log = structlog.get_logger()
 
-REQUIRED_EVENTS = ["invitee.canceled", "invitee.no_show"]
+REQUIRED_EVENTS = ["invitee.canceled", "invitee_no_show.created"]
 
 
 async def setup_webhook_subscriptions(

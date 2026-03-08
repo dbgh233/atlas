@@ -358,37 +358,73 @@ async def check_commitment_followthrough(
     return results
 
 
+def _user_mention(ghl_id: str | None, name: str) -> str:
+    """Return Slack @mention or display name."""
+    from app.modules.audit.rules import SLACK_USER_IDS
+    if ghl_id:
+        slack_id = SLACK_USER_IDS.get(ghl_id)
+        if slack_id:
+            return f"<@{slack_id}>"
+    return name
+
+
 def format_commitment_digest(
     commitments: list[dict],
     missed: list[dict] | None = None,
 ) -> str:
-    """Format commitment tracking for Slack digest."""
+    """Format commitment tracking for Slack digest — grouped by user."""
     if not commitments and not missed:
         return ""
 
     lines: list[str] = []
 
-    if commitments:
-        lines.append(
-            f":memo: *{len(commitments)} open commitment(s) from recent meetings:*"
-        )
-        for c in commitments[:10]:  # Limit to 10
-            assignee = c.get("assignee_name", "?")
-            action = c.get("action", "?")
-            merchant = c.get("merchant_name")
-            merchant_str = f" ({merchant})" if merchant else ""
-            deadline = c.get("deadline")
-            deadline_str = f" — due {deadline}" if deadline else ""
-            lines.append(f"  • {assignee}: {action}{merchant_str}{deadline_str}")
+    # Group all items (open + missed) by assignee
+    all_items: dict[str, dict] = {}  # ghl_id or name -> {mention, open: [], missed: []}
 
-    if missed:
-        lines.append(
-            f"\n:warning: *{len(missed)} missed commitment(s):*"
-        )
-        for c in missed[:5]:
-            assignee = c.get("assignee_name", "?")
+    for c in commitments or []:
+        ghl_id = c.get("assignee_ghl_id") or ""
+        name = c.get("assignee_name", "Unknown")
+        key = ghl_id or name
+        if key not in all_items:
+            all_items[key] = {
+                "mention": _user_mention(ghl_id, name),
+                "open": [],
+                "missed": [],
+            }
+        all_items[key]["open"].append(c)
+
+    for c in missed or []:
+        ghl_id = c.get("assignee_ghl_id") or ""
+        name = c.get("assignee_name", "Unknown")
+        key = ghl_id or name
+        if key not in all_items:
+            all_items[key] = {
+                "mention": _user_mention(ghl_id, name),
+                "open": [],
+                "missed": [],
+            }
+        all_items[key]["missed"].append(c)
+
+    if not all_items:
+        return ""
+
+    total = len(commitments or []) + len(missed or [])
+    lines.append(f":memo: *Open commitments* ({total})")
+
+    for key, data in sorted(all_items.items(), key=lambda x: x[1]["mention"]):
+        mention = data["mention"]
+        user_total = len(data["open"]) + len(data["missed"])
+        lines.append(f"\n{mention}:")
+
+        for c in data["missed"]:
             action = c.get("action", "?")
-            meeting_title = c.get("meeting_title", "?")
-            lines.append(f"  • {assignee}: {action} (from {meeting_title})")
+            meeting = c.get("meeting_title", "")
+            lines.append(f"  :red_circle: {action} (overdue, from {meeting})")
+
+        for c in data["open"]:
+            action = c.get("action", "?")
+            deadline = c.get("deadline")
+            deadline_str = f" -- {deadline}" if deadline else ""
+            lines.append(f"  :white_circle: {action}{deadline_str}")
 
     return "\n".join(lines)
