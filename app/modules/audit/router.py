@@ -115,6 +115,48 @@ async def trigger_audit(request: Request) -> JSONResponse:
         )
 
 
+@router.post("/backfill")
+async def trigger_backfill(request: Request) -> JSONResponse:
+    """Run Calendly backfill only (for testing)."""
+    try:
+        result = await run_calendly_backfill(
+            request.app.state.ghl_client,
+            request.app.state.calendly_client,
+            request.app.state.db,
+            lookback_days=30,
+        )
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": "complete",
+                "events_checked": result.events_checked,
+                "events_matched": result.events_matched,
+                "fields_written": result.fields_written,
+                "fields_verified": result.fields_verified,
+                "skipped_multi_match": result.skipped_multi_match,
+                "skipped_no_match": result.skipped_no_match,
+                "skipped_already_populated": result.skipped_already_populated,
+                "errors": result.errors,
+                "actions": [
+                    {
+                        "opp_id": a.opp_id,
+                        "opp_name": a.opp_name,
+                        "field_name": a.field_name,
+                        "value": a.value,
+                        "verified": a.verified,
+                    }
+                    for a in result.actions
+                ],
+            },
+        )
+    except Exception as e:
+        log.error("backfill_test_error", error=str(e), exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "error": str(e)},
+        )
+
+
 @router.get("/trend")
 async def get_audit_trend(request: Request) -> JSONResponse:
     """Get week-over-week audit trend comparison."""
