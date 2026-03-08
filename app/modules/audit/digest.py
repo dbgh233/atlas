@@ -1,17 +1,18 @@
-"""Slack digest formatter — concise, actionable, per-person.
+"""Slack digest formatter — compact, actionable daily audit summary.
 
 Design principles:
-1. Short enough to read in 30 seconds
-2. System failures = one grouped line
-3. Per-person sections with @ mentions
-4. Overdue tasks = count only (they already see them in GHL)
-5. No stale deals (tracked via GHL tasks already)
-6. No info items (not actionable)
+1. SHORT — 15-20 lines max, no walls of text
+2. System failures grouped into one line with count
+3. Per-person sections with Slack @mentions
+4. Overdue tasks: just the count per person, one line
+5. Missing fields grouped by what's missing, not by opp
+6. No stale deals, no info items
+7. Close Lost missing reason: one summary line
 """
 
 from __future__ import annotations
 
-from collections import Counter, defaultdict
+from collections import defaultdict
 from typing import TYPE_CHECKING
 
 from app.modules.audit.engine import AuditFinding, AuditResult
@@ -21,8 +22,8 @@ if TYPE_CHECKING:
     from app.modules.audit.tracker import TaggedFinding
 
 
-def _slack_mention(user_id: str) -> str:
-    """Return Slack @mention or display name."""
+def _user_mention(user_id: str) -> str:
+    """Return Slack @mention or display name for a user."""
     slack_id = SLACK_USER_IDS.get(user_id)
     if slack_id:
         return f"<@{slack_id}>"
@@ -33,134 +34,128 @@ def _user_display_name(user_id: str) -> str:
     return USER_NAMES.get(user_id, user_id)
 
 
+def _group_by_user(findings: list[AuditFinding]) -> dict[str, list[AuditFinding]]:
+    """Group findings by assigned user."""
+    groups: dict[str, list[AuditFinding]] = defaultdict(list)
+    for f in findings:
+        groups[f.assigned_to].append(f)
+    return dict(groups)
+
+
 def format_digest(
     result: AuditResult,
     tagged: list[TaggedFinding] | None = None,
     trend_summary: str | None = None,
 ) -> str:
-    """Format a concise Slack digest — target 15-20 lines."""
+    """Format a compact, actionable audit digest for Slack."""
 
-    # All-clear
+    # All-clear message
     if result.total_issues == 0 and not result.overdue_task_counts and not result.close_lost_missing_reason:
         msg = (
-            f":white_check_mark: *Atlas Daily* — "
-            f"{result.total_opportunities} opps checked, no issues."
+            f":white_check_mark: *Atlas Daily* -- {result.total_opportunities} opps checked. No issues found."
         )
         if trend_summary:
-            msg += f" {trend_summary}"
+            msg += f"\n{trend_summary}"
         return msg
 
-    sections: list[str] = []
+    lines: list[str] = []
 
     # -----------------------------------------------------------------------
-    # Header — one line
+    # Header
     # -----------------------------------------------------------------------
-    total_overdue = sum(result.overdue_task_counts.values())
-    action_count = result.total_issues + total_overdue
-    header = f":bar_chart: *Atlas Daily* — {result.total_opportunities} opps checked"
-    if trend_summary:
-        header += f" | {trend_summary}"
-    sections.append(header)
+    lines.append(f":bar_chart: *Atlas Daily* -- {result.total_opportunities} opps checked")
 
     # -----------------------------------------------------------------------
-    # System failures — grouped into ONE summary line
+    # System failures — one grouped line per failure type
     # -----------------------------------------------------------------------
     system_failures = [f for f in result.findings if f.severity == "system_failure"]
     if system_failures:
-        # Group by root cause pattern (e.g. "Zap fields missing at Onboarding")
-        zap_failures = [f for f in system_failures if "Zap" in (f.description or "")]
-        workflow_failures = [f for f in system_failures if "workflow" in (f.description or "").lower() and f not in zap_failures]
-        other_sys = [f for f in system_failures if f not in zap_failures and f not in workflow_failures]
+        # Group by field_name to collapse duplicates
+        by_field: dict[str, list[AuditFinding]] = defaultdict(list)
+        for f in system_failures:
+            key = f.field_name or f.description
+            by_field[key].append(f)
 
-        if zap_failures:
-            # Count unique opps affected
-            affected_opps = set(f.opp_id for f in zap_failures)
-            sections.append(
-                f"\n:rotating_light: *Zap Issue:* {len(affected_opps)} opps missing Calendly data — check Zapier"
+        for field_label, findings in by_field.items():
+            # Find common stage pattern if possible
+            stages = {f.stage for f in findings}
+            stage_hint = f" at {next(iter(stages))}" if len(stages) == 1 else ""
+            lines.append(
+                f":rotating_light: *Zap Issue*: {len(findings)} opps missing {field_label}{stage_hint}"
             )
+        # One-line suggestion for all system failures
+        lines.append("  Bookings went through but Zap didn't stamp fields. Check Zapier.")
 
-        if workflow_failures:
-            affected_opps = set(f.opp_id for f in workflow_failures)
-            # Group by field name for compact display
-            by_field = Counter(f.field_name for f in workflow_failures if f.field_name)
-            field_summary = ", ".join(f"{field} ({n})" for field, n in by_field.most_common(3))
-            sections.append(
-                f"\n:gear: *Workflow Issue:* {field_summary} — GHL workflow may have failed"
-            )
+    # -----------------------------------------------------------------------
+    # Per-person sections — human_gap findings + overdue task counts
+    # -----------------------------------------------------------------------
+    human_findings = [f for f in result.findings if f.severity == "human_gap"]
+    by_user = _group_by_user(human_findings)
 
-        if other_sys:
-            affected_opps = set(f.opp_id for f in other_sys)
-            sections.append(
-                f"\n:warning: *System:* {len(other_sys)} automation issues on {len(affected_opps)} opps"
-            )
+    # Merge in users who only have overdue tasks (no other findings)
+    all_user_ids = set(by_user.keys()) | set(result.overdue_task_counts.keys())
+
+    for user_id in sorted(all_user_ids, key=lambda uid: _user_display_name(uid)):
+        user_findings = by_user.get(user_id, [])
+        overdue_count = result.overdue_task_counts.get(user_id, 0)
+
+        # Count total items for this user
+        item_count = len(user_findings) + (1 if overdue_count else 0)
+        if item_count == 0:
+            continue
+
+        mention = _user_mention(user_id)
+        count_label = f" ({item_count} items)" if item_count > 1 else ""
+        lines.append(f"\n{mention}{count_label}:")
+
+        # Group missing fields by field_name to collapse "Lead Source missing on N contacts"
+        field_groups: dict[str, list[AuditFinding]] = defaultdict(list)
+        other_findings: list[AuditFinding] = []
+
+        for f in user_findings:
+            if f.field_name and f.category in ("missing_field", "contact_issue"):
+                field_groups[f.field_name].append(f)
+            else:
+                other_findings.append(f)
+
+        # Render grouped missing fields
+        for field_label, findings in field_groups.items():
+            if len(findings) == 1:
+                f = findings[0]
+                stage_info = f" ({f.stage})" if f.stage else ""
+                lines.append(f"  :warning: {f.opp_name}{stage_info} -- {field_label} missing")
+            else:
+                lines.append(f"  :warning: {field_label} missing on {len(findings)} contacts")
+
+        # Render other findings (name_issue, etc.) — one line each
+        for f in other_findings:
+            stage_info = f" ({f.stage})" if f.stage else ""
+            lines.append(f"  :warning: {f.opp_name}{stage_info} -- {f.description}")
+
+        # Overdue tasks — single line with count
+        if overdue_count:
+            lines.append(f"  :clipboard: {overdue_count} overdue tasks -- review in GHL")
 
     # -----------------------------------------------------------------------
     # Close Lost missing reason
     # -----------------------------------------------------------------------
     if result.close_lost_missing_reason:
         n = len(result.close_lost_missing_reason)
-        sections.append(f"\n:x: {n} Close Lost deal{'s' if n != 1 else ''} missing close reason")
+        lines.append(
+            f"\n:grey_question: {n} Close Lost deal{'s' if n != 1 else ''} missing close reason"
+        )
 
     # -----------------------------------------------------------------------
-    # Per-person sections
-    # -----------------------------------------------------------------------
-    human_findings = [f for f in result.findings if f.severity == "human_gap"]
-    by_user: dict[str, list[AuditFinding]] = defaultdict(list)
-    for f in human_findings:
-        by_user[f.assigned_to].append(f)
-
-    # Merge overdue task counts into the user list
-    all_users = set(by_user.keys()) | set(result.overdue_task_counts.keys())
-
-    for user_id in sorted(all_users, key=lambda uid: _user_display_name(uid)):
-        user_findings = by_user.get(user_id, [])
-        overdue_count = result.overdue_task_counts.get(user_id, 0)
-
-        if not user_findings and not overdue_count:
-            continue
-
-        mention = _slack_mention(user_id)
-        item_count = len(user_findings) + (1 if overdue_count else 0)
-        lines = [f"\n{mention}:"]
-
-        # Group findings by field_name for compact display
-        # e.g. "Lead Source missing on 12 contacts" instead of listing each
-        lead_source = [f for f in user_findings if f.field_name == "Lead Source"]
-        email_missing = [f for f in user_findings if "email" in (f.description or "").lower()]
-        other_findings = [f for f in user_findings if f not in lead_source and f not in email_missing]
-
-        if lead_source:
-            lines.append(f"  :warning: Lead Source missing on {len(lead_source)} contacts")
-
-        if email_missing:
-            lines.append(f"  :warning: Email missing on {len(email_missing)} contacts")
-
-        # Group remaining by opp for compact display
-        opp_groups: dict[str, list[AuditFinding]] = defaultdict(list)
-        for f in other_findings:
-            opp_groups[f.opp_id].append(f)
-
-        for opp_id, opp_findings in opp_groups.items():
-            opp_name = opp_findings[0].opp_name
-            stage = opp_findings[0].stage
-            field_names = [f.field_name or f.description for f in opp_findings]
-            lines.append(f"  :warning: {opp_name} ({stage}) — {', '.join(field_names)}")
-
-        if overdue_count:
-            lines.append(f"  :clipboard: {overdue_count} overdue task{'s' if overdue_count != 1 else ''} — review in GHL")
-
-        sections.append("\n".join(lines))
-
-    # -----------------------------------------------------------------------
-    # Suggestions (if any have concrete suggested_value)
+    # Suggestions ready for review
     # -----------------------------------------------------------------------
     suggestions = [f for f in result.findings if f.suggested_value]
     if suggestions:
-        lines = [f"\n:bulb: *{len(suggestions)} fix{'es' if len(suggestions) != 1 else ''} ready* — `@Atlas approve all` to apply"]
-        for i, f in enumerate(suggestions[:5], 1):
-            lines.append(f"  {i}. {f.field_name} → \"{f.suggested_value}\" on {f.opp_name}")
-        if len(suggestions) > 5:
-            lines.append(f"  ... and {len(suggestions) - 5} more")
-        sections.append("\n".join(lines))
+        lines.append(f"\n:white_check_mark: *{len(suggestions)} auto-fix suggestions ready* -- reply `@Atlas approve all` to apply")
 
-    return "\n".join(sections)
+    # -----------------------------------------------------------------------
+    # Trend
+    # -----------------------------------------------------------------------
+    if trend_summary:
+        lines.append(f"\n_{trend_summary}_")
+
+    return "\n".join(lines)
