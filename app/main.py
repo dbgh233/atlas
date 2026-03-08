@@ -177,6 +177,22 @@ async def lifespan(app: FastAPI):
             except Exception as cm_err:
                 audit_log.error("scheduled_commitment_check_error", error=str(cm_err))
 
+            # Run pattern detection (agenda gaps, recurring topics)
+            try:
+                from app.modules.meetings.patterns import (
+                    detect_patterns,
+                    format_pattern_digest,
+                )
+
+                pattern_results = await detect_patterns(
+                    app.state.db, app.state.ghl_client
+                )
+                pattern_digest = format_pattern_digest(pattern_results)
+                if pattern_digest:
+                    digest_text += "\n\n" + pattern_digest
+            except Exception as pd_err:
+                audit_log.error("scheduled_pattern_detection_error", error=str(pd_err))
+
             await app.state.slack_client.send_message(digest_text)
             audit_log.info(
                 "scheduled_audit_complete",
