@@ -23,7 +23,9 @@ STAGE_CLOSE_LOST = "a8b7e67f-6b14-490d-846d-8748812d052b"
 STAGE_DECLINED = "7270b22e-858c-497b-aebf-54cf82051b73"
 STAGE_CHURNED = "7a6d180e-6826-4bbd-a180-3653781f005f"
 
-SKIP_STAGES = {STAGE_CLOSE_LOST, STAGE_DECLINED, STAGE_CHURNED}
+# Pre-Application is skipped (not a real stage for audit purposes).
+# Close Lost is NOT skipped — we check for close lost reason.
+SKIP_STAGES = {STAGE_PRE_APPLICATION, STAGE_DECLINED, STAGE_CHURNED}
 
 STAGE_NAMES: dict[str, str] = {
     STAGE_DISCOVERY: "Discovery",
@@ -148,6 +150,20 @@ USER_ROLES: dict[str, str] = {
     "MxNzXKj1RhdGMshfp9E5": "Onboarding",
     "pEGvWEXTparQBFwZpLAB": "CS",
     "MK5s94o3X9NASajdbX2j": "EA",
+}
+
+# Slack user IDs for @mentions (placeholder — fill in real IDs)
+SLACK_USER_IDS: dict[str, str] = {
+    "OcuxaptjbljS6L2SnKbb": "U08H642F692",   # Henry Mashburn
+    "8oVYzIxdHG8TGVpXc3Ma": "U07LUAX5T89",   # Drew Brasiel
+    "MxNzXKj1RhdGMshfp9E5": "U0A16L99ANB",   # Hannah Ness
+    "pEGvWEXTparQBFwZpLAB": "U09ECH8G1K9",   # Ism Shovan
+    "MK5s94o3X9NASajdbX2j": "U08GME4NHV3",   # June Babael
+}
+
+# Opportunity names to skip entirely during audit
+SKIP_OPP_NAMES: set[str] = {
+    "E2E TEST MERCHANT - DO NOT PROCESS",
 }
 
 # Placeholder opportunity name to flag

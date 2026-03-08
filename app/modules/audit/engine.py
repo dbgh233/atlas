@@ -34,15 +34,16 @@ from app.modules.audit.rules import (
     FIELD_PROCESSOR,
     FIELD_SUBMITTED_DATE,
     PLACEHOLDER_OPP_NAME,
+    SKIP_OPP_NAMES,
     SKIP_STAGES,
     STAGE_APPROVED,
+    STAGE_CLOSE_LOST,
     STAGE_COMMITTED,
     STAGE_DISCOVERY,
     STAGE_LIVE,
     STAGE_MPA_UNDERWRITING,
     STAGE_NAMES,
     STAGE_ONBOARDING_SCHEDULED,
-    STALE_THRESHOLDS,
     ZAP_DISCOVERY_FIELDS,
     stage_at_or_past,
 )
@@ -54,7 +55,7 @@ log = structlog.get_logger()
 class AuditFinding:
     """A single audit issue with context-aware severity."""
 
-    category: str  # "missing_field", "stale_deal", "overdue_task", "contact_issue", "name_issue"
+    category: str  # "missing_field", "stale_deal", "overdue_task", "contact_issue", "name_issue", "close_lost_issue"
     opp_id: str
     opp_name: str
     stage: str
@@ -75,8 +76,10 @@ class AuditResult:
     total_issues: int = 0
     findings: list[AuditFinding] = field(default_factory=list)
     missing_fields: list[AuditFinding] = field(default_factory=list)
-    stale_deals: list[AuditFinding] = field(default_factory=list)
-    overdue_tasks: list[AuditFinding] = field(default_factory=list)
+    stale_deals: list[AuditFinding] = field(default_factory=list)  # kept for backward compat, always empty
+    overdue_tasks: list[AuditFinding] = field(default_factory=list)  # kept for backward compat, always empty
+    overdue_task_counts: dict[str, int] = field(default_factory=dict)  # user_id -> count
+    close_lost_missing_reason: int = 0  # count of Close Lost deals missing reason
     run_timestamp: str = ""
 
 
@@ -155,8 +158,17 @@ async def run_audit(ghl_client: GHLClient) -> AuditResult:
         stage_name = STAGE_NAMES.get(stage_id, stage_id)
         assigned_to = _get_assigned_user(opp)
 
-        # Skip terminal stages
+        # Skip excluded opp names (e.g. E2E test merchant)
+        if opp_name in SKIP_OPP_NAMES:
+            continue
+
+        # Skip terminal/excluded stages (Pre-Application, Declined, Churned)
         if stage_id in SKIP_STAGES:
+            continue
+
+        # Close Lost: only check for close lost reason, skip all other checks
+        if stage_id == STAGE_CLOSE_LOST:
+            _check_close_lost_reason(opp, result)
             continue
 
         # Grandfather cutoff — skip field checks for old deals
@@ -192,10 +204,9 @@ async def run_audit(ghl_client: GHLClient) -> AuditResult:
             _check_fields_contextual(opp, opp_id, opp_name, stage_id, stage_name, assigned_to, now, result)
             _check_contact_fields(opp, opp_id, opp_name, stage_name, assigned_to, result)
 
-        # SLA-aware stale deal detection
-        _check_stale_deal(opp, opp_id, opp_name, stage_id, stage_name, assigned_to, now, result)
+        # Stale deal detection removed — tracked via GHL tasks, noise in digest
 
-    # Overdue tasks
+    # Overdue tasks — count per user, no individual findings
     await _check_overdue_tasks(ghl_client, opportunities, result, now)
 
     result.total_issues = len(result.findings)
@@ -205,10 +216,25 @@ async def run_audit(ghl_client: GHLClient) -> AuditResult:
         total_issues=result.total_issues,
         missing_fields=len(result.missing_fields),
         stale_deals=len(result.stale_deals),
-        overdue_tasks=len(result.overdue_tasks),
+        overdue_task_counts=result.overdue_task_counts,
+        close_lost_missing_reason=result.close_lost_missing_reason,
     )
 
     return result
+
+
+def _check_close_lost_reason(
+    opp: dict,
+    result: AuditResult,
+) -> None:
+    """Check if a Close Lost deal has a close reason recorded.
+
+    GHL stores lost reason via opp.get('lostReasonId'). If missing,
+    increment the counter. The exact field may need verification.
+    """
+    lost_reason_id = opp.get("lostReasonId")
+    if not lost_reason_id:
+        result.close_lost_missing_reason += 1
 
 
 def _check_fields_contextual(
@@ -228,7 +254,7 @@ def _check_fields_contextual(
     has_discovery = _has_discovery_data(opp)
     appt_date_str = _get_custom_field_value(opp, FIELD_APPOINTMENT_DATE)
     appt_passed = _appointment_date_passed(opp, now)
-    appt_type = _get_custom_field_value(opp, FIELD_APPOINTMENT_TYPE)
+    _get_custom_field_value(opp, FIELD_APPOINTMENT_TYPE)  # noqa: F841 — read but unused currently
 
     # -----------------------------------------------------------------------
     # 1. Zap-populated fields (Industry, Volume, High Ticket, Website, etc.)
@@ -255,7 +281,6 @@ def _check_fields_contextual(
                 result.missing_fields.append(finding)
     elif stage_at_or_past(stage_id, STAGE_ONBOARDING_SCHEDULED):
         # Direct Onboarding booking (no Discovery) — Onboarding Zap should have set core fields
-        # But Industry/Volume/HighTicket/Website may not exist if they weren't on the Onboarding form
         for field_id in [FIELD_APPOINTMENT_TYPE, FIELD_APPOINTMENT_STATUS, FIELD_APPOINTMENT_DATE, FIELD_CALENDLY_EVENT_ID]:
             value = _get_custom_field_value(opp, field_id)
             if not value:
@@ -268,7 +293,7 @@ def _check_fields_contextual(
                     assigned_to=assigned_to,
                     description=f"Missing {display_name} — Onboarding Zap should have set this",
                     field_name=display_name,
-                    suggested_action=f"Check Calendly booking. Onboarding Zap may have failed.",
+                    suggested_action="Check Calendly booking. Onboarding Zap may have failed.",
                     severity="system_failure",
                 )
                 result.findings.append(finding)
@@ -299,10 +324,8 @@ def _check_fields_contextual(
                 )
                 result.findings.append(finding)
                 result.missing_fields.append(finding)
-            # else: appointment in future, skip — call hasn't happened yet
+            # else: appointment in future, skip
         elif stage_at_or_past(stage_id, STAGE_COMMITTED):
-            # Past Discovery — should have an outcome
-            # If at Onboarding Scheduled or later, suggest "Closed Won"
             if stage_at_or_past(stage_id, STAGE_ONBOARDING_SCHEDULED):
                 finding = AuditFinding(
                     category="missing_field",
@@ -338,10 +361,8 @@ def _check_fields_contextual(
     onboarding_completed = _get_custom_field_value(opp, FIELD_ONBOARDING_COMPLETED_DATE)
     if not onboarding_completed and stage_at_or_past(stage_id, STAGE_ONBOARDING_SCHEDULED):
         if stage_at_or_past(stage_id, STAGE_MPA_UNDERWRITING):
-            # Past Onboarding Scheduled — call must have happened, but date not stamped
             appt_status = _get_custom_field_value(opp, FIELD_APPOINTMENT_STATUS)
             if appt_status and appt_status.lower() == "completed":
-                # Status is Completed but date didn't stamp — workflow failure
                 finding = AuditFinding(
                     category="missing_field",
                     opp_id=opp_id,
@@ -354,7 +375,6 @@ def _check_fields_contextual(
                     severity="system_failure",
                 )
             else:
-                # Status not Completed — human forgot to mark it
                 finding = AuditFinding(
                     category="missing_field",
                     opp_id=opp_id,
@@ -370,7 +390,6 @@ def _check_fields_contextual(
             result.findings.append(finding)
             result.missing_fields.append(finding)
         elif stage_id == STAGE_ONBOARDING_SCHEDULED and appt_passed:
-            # Onboarding call date passed but not marked complete
             appt_status = _get_custom_field_value(opp, FIELD_APPOINTMENT_STATUS)
             if not appt_status or appt_status.lower() not in ("completed", "cancelled", "no-show"):
                 finding = AuditFinding(
@@ -387,7 +406,6 @@ def _check_fields_contextual(
                 )
                 result.findings.append(finding)
                 result.missing_fields.append(finding)
-        # else: onboarding call in future, skip
 
     # -----------------------------------------------------------------------
     # 4. Submitted Date (stamped by GHL workflow when opp moves to MPA)
@@ -543,87 +561,29 @@ def _check_contact_fields(
         result.missing_fields.append(finding)
 
 
-def _check_stale_deal(
-    opp: dict,
-    opp_id: str,
-    opp_name: str,
-    stage_id: str,
-    stage_name: str,
-    assigned_to: str,
-    now: datetime,
-    result: AuditResult,
-) -> None:
-    """SLA-aware stale deal detection."""
-    threshold_days = STALE_THRESHOLDS.get(stage_id)
-    if not threshold_days:
-        return
-
-    last_updated = opp.get("lastStageChangeAt") or opp.get("updatedAt") or opp.get("createdAt", "")
-    if not last_updated:
-        return
-
-    try:
-        if isinstance(last_updated, str):
-            updated_dt = datetime.fromisoformat(last_updated.replace("Z", "+00:00"))
-        else:
-            updated_dt = datetime.fromtimestamp(last_updated / 1000, tz=UTC)
-        days_in_stage = (now - updated_dt).days
-    except (ValueError, TypeError):
-        return
-
-    if days_in_stage <= threshold_days:
-        return
-
-    # Build context-specific stale deal message
-    if stage_id == STAGE_COMMITTED:
-        description = f"In Committed for {days_in_stage} days (48hr SLA). Onboarding should be booked."
-        action = "Book onboarding call or move to Close Lost. Committed SLA is 48 hours."
-        owner = "Sales"
-    elif stage_id == STAGE_APPROVED:
-        description = f"In Approved for {days_in_stage} days (7-day SLA). Biggest pipeline leak — 34.78% conversion."
-        action = "Book integration call within 48hr of approval. Gateway setup + test batch within 7 days."
-        owner = "Sales"
-    elif stage_id == STAGE_MPA_UNDERWRITING:
-        description = f"In MPA & Underwriting for {days_in_stage} days. Follow up with bank."
-        action = "Follow up with processor daily. Respond to notes/stips same day."
-        owner = "Onboarding"
-    elif stage_id == STAGE_ONBOARDING_SCHEDULED:
-        description = f"In Onboarding Scheduled for {days_in_stage} days."
-        action = "Check if onboarding call occurred and update Appointment Status."
-        owner = "Onboarding"
-    else:
-        description = f"In {stage_name} for {days_in_stage} days (threshold: {threshold_days}d)"
-        action = "Review and advance or close this opportunity"
-        owner = None
-
-    finding = AuditFinding(
-        category="stale_deal",
-        opp_id=opp_id,
-        opp_name=opp_name,
-        stage=stage_name,
-        assigned_to=assigned_to,
-        description=description,
-        suggested_action=action,
-        severity="human_gap",
-        owner_hint=owner,
-    )
-    result.findings.append(finding)
-    result.stale_deals.append(finding)
-
-
 async def _check_overdue_tasks(
     ghl_client: GHLClient,
     opportunities: list[dict],
     result: AuditResult,
     now: datetime,
 ) -> None:
-    """Check for overdue tasks across active opportunities."""
+    """Check for overdue tasks across active opportunities.
+
+    Instead of individual findings, tracks a count per user in
+    result.overdue_task_counts for compact digest rendering.
+    """
     checked_contacts: set[str] = set()
     contact_opp_map: dict[str, dict] = {}
 
     for opp in opportunities:
         stage_id = opp.get("pipelineStageId", "")
         if stage_id in SKIP_STAGES:
+            continue
+        # Skip Close Lost for task checking too
+        if stage_id == STAGE_CLOSE_LOST:
+            continue
+        opp_name = opp.get("name", "Unknown")
+        if opp_name in SKIP_OPP_NAMES:
             continue
         contact_id = opp.get("contactId", "")
         if contact_id and contact_id not in checked_contacts:
@@ -639,6 +599,8 @@ async def _check_overdue_tasks(
             log.warning("audit_task_fetch_error", contact_id=contact_id, error=str(e))
             continue
 
+        assigned_to = _get_assigned_user(opp)
+
         for task in tasks:
             if task.get("completed"):
                 continue
@@ -648,24 +610,8 @@ async def _check_overdue_tasks(
             try:
                 due_dt = datetime.fromisoformat(due_date_str.replace("Z", "+00:00"))
                 if due_dt < overdue_threshold:
-                    opp_name = opp.get("name", "Unknown")
-                    opp_id = opp.get("id", "")
-                    stage_name = STAGE_NAMES.get(opp.get("pipelineStageId", ""), "Unknown")
-                    assigned_to = _get_assigned_user(opp)
-                    task_title = task.get("title") or task.get("body", "Untitled task")
-                    days_overdue = (now - due_dt).days
-
-                    finding = AuditFinding(
-                        category="overdue_task",
-                        opp_id=opp_id,
-                        opp_name=opp_name,
-                        stage=stage_name,
-                        assigned_to=assigned_to,
-                        description=f"Task overdue by {days_overdue}d: {task_title}",
-                        suggested_action=f"Complete task: {task_title}. Do not reschedule — overdue tasks stay overdue for accountability.",
-                        severity="human_gap",
+                    result.overdue_task_counts[assigned_to] = (
+                        result.overdue_task_counts.get(assigned_to, 0) + 1
                     )
-                    result.findings.append(finding)
-                    result.overdue_tasks.append(finding)
             except (ValueError, TypeError):
                 continue

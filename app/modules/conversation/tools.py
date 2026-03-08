@@ -287,18 +287,30 @@ async def _tool_get_missing_fields(db: aiosqlite.Connection, inp: dict) -> str:
 
 
 async def _tool_get_overdue_tasks(db: aiosqlite.Connection, inp: dict) -> str:
-    data = await _get_latest_audit_data(db)
-    if not data:
+    # Overdue tasks are now stored as per-user counts in issues_by_type, not individual findings
+    repo = AuditRepository(db)
+    snapshots = await repo.get_latest(limit=1)
+    if not snapshots:
         return "No audit data available. Run an audit first."
-    findings = [f for f in data.get("findings", []) if f.get("category") == "overdue_task"]
+    try:
+        by_type = json.loads(snapshots[0].get("issues_by_type", "{}"))
+    except json.JSONDecodeError:
+        by_type = {}
+    counts = by_type.get("overdue_task_counts", {})
+    if not counts:
+        return "No overdue tasks found."
     user_id = _match_user(inp.get("user_filter"))
-    findings = _filter_findings(findings, user_id)
-    if not findings:
-        user_str = f" for {inp.get('user_filter')}" if inp.get("user_filter") else ""
-        return f"No overdue tasks found{user_str}."
-    lines = [f"Found {len(findings)} overdue task(s):"]
-    for f in findings:
-        lines.append(_finding_to_text(f))
+    if user_id:
+        count = counts.get(user_id, 0)
+        name = USER_NAMES.get(user_id, user_id)
+        if not count:
+            return f"No overdue tasks found for {name}."
+        return f"{name} has {count} overdue task{'s' if count != 1 else ''} — review in GHL."
+    total = sum(counts.values())
+    lines = [f"Overdue tasks ({total} total):"]
+    for uid, count in sorted(counts.items(), key=lambda x: -x[1]):
+        name = USER_NAMES.get(uid, uid)
+        lines.append(f"• {name}: {count} overdue task{'s' if count != 1 else ''}")
     return "\n".join(lines)
 
 
@@ -312,13 +324,15 @@ async def _tool_get_audit_summary(db: aiosqlite.Connection) -> str:
         by_type = json.loads(s.get("issues_by_type", "{}"))
     except json.JSONDecodeError:
         by_type = {}
+    overdue_total = by_type.get("overdue_tasks", 0)
+    close_lost = by_type.get("close_lost_missing_reason", 0)
     return (
         f"Latest audit ({s.get('run_date', '?')}, {s.get('run_type', '?')}):\n"
         f"• Total opportunities checked: {s.get('total_opportunities', '?')}\n"
         f"• Total issues: {s.get('total_issues', '?')}\n"
         f"  - Missing fields: {by_type.get('missing_fields', '?')}\n"
-        f"  - Stale deals: {by_type.get('stale_deals', '?')}\n"
-        f"  - Overdue tasks: {by_type.get('overdue_tasks', '?')}"
+        f"  - Overdue tasks: {overdue_total}\n"
+        f"  - Close Lost missing reason: {close_lost}"
     )
 
 

@@ -137,8 +137,10 @@ async def save_snapshot(
 
     issues_by_type = json.dumps({
         "missing_fields": len(result.missing_fields),
-        "stale_deals": len(result.stale_deals),
-        "overdue_tasks": len(result.overdue_tasks),
+        "stale_deals": 0,
+        "overdue_tasks": sum(result.overdue_task_counts.values()),
+        "overdue_task_counts": result.overdue_task_counts,
+        "close_lost_missing_reason": len(result.close_lost_missing_reason),
     })
 
     run_date = datetime.now(UTC).strftime("%Y-%m-%d")
