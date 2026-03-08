@@ -53,6 +53,9 @@ async def trigger_audit(request: Request) -> JSONResponse:
                 "description": tf.finding.description,
                 "field_name": tf.finding.field_name,
                 "suggested_action": tf.finding.suggested_action,
+                "severity": tf.finding.severity,
+                "suggested_value": tf.finding.suggested_value,
+                "owner_hint": tf.finding.owner_hint,
                 "tag": tf.tag,
                 "days_open": tf.days_open,
             }

@@ -1,8 +1,11 @@
-"""Slack digest formatter — groups audit findings by assigned user.
+"""Slack digest formatter — redesigned for context-aware audit findings.
 
-Produces one Slack message with three sections:
-Missing Fields, Stale Deals, Overdue Tasks.
-Supports tagged findings (NEW / STILL OPEN) when available.
+Priorities:
+1. Quick summary at top (glanceable)
+2. System failures first (broken automation)
+3. Grouped by responsible person
+4. Suggested fixes clearly distinguished
+5. Stale deals and overdue tasks inline with owner
 """
 
 from __future__ import annotations
@@ -11,16 +14,10 @@ from collections import defaultdict
 from typing import TYPE_CHECKING
 
 from app.modules.audit.engine import AuditFinding, AuditResult
+from app.modules.audit.rules import USER_NAMES
 
 if TYPE_CHECKING:
     from app.modules.audit.tracker import TaggedFinding
-
-# GHL User ID -> display name mapping
-USER_NAMES: dict[str, str] = {
-    "OcuxaptjbljS6L2SnKbb": "Henry Mashburn",
-    "8oVYzIxdHG8TGVpXc3Ma": "Drew Brasiel",
-    "Unassigned": "Unassigned",
-}
 
 
 def _user_display_name(user_id: str) -> str:
@@ -35,59 +32,12 @@ def _group_by_user(findings: list[AuditFinding]) -> dict[str, list[AuditFinding]
     return dict(groups)
 
 
-def _format_section(
-    title: str,
-    emoji: str,
-    findings: list[AuditFinding],
-    tag_map: dict[str, str] | None = None,
-) -> str:
-    """Format a section of findings grouped by user, then by opportunity.
-
-    Instead of one line per field, groups missing fields under each merchant:
-        *Henry Mashburn:*
-          Solaris Peptides (Onboarding Scheduled) — 10 missing
-            Appointment Type, Appointment Status, Appointment Date, ...
-    """
-    if not findings:
-        return ""
-
-    by_user = _group_by_user(findings)
-    lines = [f"{emoji} *{title}* ({len(findings)} issues)"]
-
-    for user_id, user_findings in sorted(by_user.items(), key=lambda x: _user_display_name(x[0])):
-        name = _user_display_name(user_id)
-        lines.append(f"\n*{name}:*")
-
-        # Group by opportunity within user
-        by_opp: dict[str, list[AuditFinding]] = defaultdict(list)
-        for f in user_findings:
-            by_opp[f.opp_id].append(f)
-
-        for opp_id, opp_findings in by_opp.items():
-            opp_name = opp_findings[0].opp_name
-            stage = opp_findings[0].stage
-
-            # Collect new vs recurring counts for this opp
-            new_count = 0
-            field_names: list[str] = []
-            for f in opp_findings:
-                short = (f.field_name or f.description).replace("Missing ", "").replace("Contact missing ", "")
-                tag_str = ""
-                if tag_map:
-                    key = f"{f.opp_id}:{f.category}:{f.field_name or f.description}"
-                    t = tag_map.get(key, "")
-                    if t == "NEW":
-                        new_count += 1
-                field_names.append(short)
-
-            count_label = f"{len(opp_findings)} issues"
-            if tag_map and new_count > 0:
-                count_label += f", {new_count} new"
-
-            lines.append(f"  • *{opp_name}* ({stage}) — {count_label}")
-            lines.append(f"    _{', '.join(field_names)}_")
-
-    return "\n".join(lines)
+def _group_by_opp(findings: list[AuditFinding]) -> dict[str, list[AuditFinding]]:
+    """Group findings by opportunity."""
+    groups: dict[str, list[AuditFinding]] = defaultdict(list)
+    for f in findings:
+        groups[f.opp_id].append(f)
+    return dict(groups)
 
 
 def format_digest(
@@ -95,62 +45,154 @@ def format_digest(
     tagged: list[TaggedFinding] | None = None,
     trend_summary: str | None = None,
 ) -> str:
-    """Format the full audit digest for Slack.
+    """Format the full audit digest for Slack with severity-aware sections."""
 
-    Args:
-        result: The audit result.
-        tagged: Optional tagged findings for NEW/STILL OPEN labels.
-        trend_summary: Optional week-over-week trend line.
-    """
-    # AUDIT-09: All clear message
+    # All-clear message
     if result.total_issues == 0:
         msg = (
-            f":white_check_mark: *Atlas Pipeline Audit — All Clear*\n"
+            f":white_check_mark: *Atlas Daily Pipeline Report*\n"
             f"Checked {result.total_opportunities} opportunities. No issues found."
         )
         if trend_summary:
-            msg += f"\n\n{trend_summary}"
+            msg += f"\n{trend_summary}"
         return msg
 
-    # Build tag lookup map
-    tag_map: dict[str, str] | None = None
+    # Build tag lookup
+    tag_map: dict[str, str] = {}
+    new_count = 0
     if tagged:
-        tag_map = {}
-        new_count = 0
-        recurring_count = 0
         for tf in tagged:
             key = f"{tf.finding.opp_id}:{tf.finding.category}:{tf.finding.field_name or tf.finding.description}"
             tag_map[key] = tf.tag
             if tf.tag == "NEW":
                 new_count += 1
-            else:
-                recurring_count += 1
 
+    # Separate findings by severity
+    system_failures: list[AuditFinding] = []
+    actionable: list[AuditFinding] = []  # human_gap findings
+    info_items: list[AuditFinding] = []
+    suggestions: list[AuditFinding] = []  # findings with concrete suggested_value
+
+    for f in result.findings:
+        if f.suggested_value:
+            suggestions.append(f)
+        if f.severity == "system_failure":
+            system_failures.append(f)
+        elif f.severity == "info":
+            info_items.append(f)
+        else:
+            actionable.append(f)
+
+    # Count action items (system failures + human gaps, excluding info)
+    action_count = len(system_failures) + len(actionable)
+
+    # -----------------------------------------------------------------------
+    # Header
+    # -----------------------------------------------------------------------
     sections: list[str] = []
-    header = (
-        f":clipboard: *Atlas Pipeline Audit*\n"
-        f"Checked {result.total_opportunities} opportunities — "
-        f"{result.total_issues} issues found"
-    )
-    if tagged and tag_map:
-        header += f" ({new_count} new, {recurring_count} recurring)"
+    header = f":bar_chart: *Atlas Daily Pipeline Report*"
+    header += f"\nChecked {result.total_opportunities} opportunities"
+    header += f" | {action_count} action items"
+    if new_count > 0:
+        header += f" ({new_count} new)"
     if trend_summary:
-        header += f"\n{trend_summary}"
-    sections.append(header + "\n")
+        header += f" | {trend_summary}"
+    sections.append(header)
 
-    # Missing Fields section
-    missing = _format_section("Missing Fields", ":warning:", result.missing_fields, tag_map)
-    if missing:
-        sections.append(missing)
+    # -----------------------------------------------------------------------
+    # System Failures (top priority — broken automation)
+    # -----------------------------------------------------------------------
+    if system_failures:
+        lines = [f"\n:rotating_light: *System Issues* ({len(system_failures)}) — Automation may be broken"]
+        by_opp = _group_by_opp(system_failures)
+        for opp_id, opp_findings in by_opp.items():
+            opp_name = opp_findings[0].opp_name
+            stage = opp_findings[0].stage
+            lines.append(f"  *{opp_name}* ({stage})")
+            for f in opp_findings:
+                tag_key = f"{f.opp_id}:{f.category}:{f.field_name or f.description}"
+                tag_str = ""
+                tag = tag_map.get(tag_key, "")
+                if tag == "NEW":
+                    tag_str = " :new:"
+                desc = f.field_name or f.description
+                lines.append(f"    {desc}{tag_str} — {f.suggested_action or f.description}")
+        sections.append("\n".join(lines))
 
-    # Stale Deals
-    stale = _format_section("Stale Deals", ":hourglass:", result.stale_deals, tag_map)
-    if stale:
-        sections.append(stale)
+    # -----------------------------------------------------------------------
+    # Actionable items grouped by person
+    # -----------------------------------------------------------------------
+    # Combine human_gap findings (missing fields, stale deals, overdue tasks)
+    # Group by user, then by opp within user
+    all_human_findings = [f for f in result.findings if f.severity == "human_gap"]
+    if all_human_findings:
+        by_user = _group_by_user(all_human_findings)
 
-    # Overdue Tasks
-    overdue = _format_section("Overdue Tasks", ":alarm_clock:", result.overdue_tasks, tag_map)
-    if overdue:
-        sections.append(overdue)
+        for user_id in sorted(by_user, key=lambda uid: _user_display_name(uid)):
+            user_findings = by_user[user_id]
+            name = _user_display_name(user_id)
+            lines = [f"\n:bust_in_silhouette: *{name}*"]
 
-    return "\n\n".join(sections)
+            by_opp = _group_by_opp(user_findings)
+            for opp_id, opp_findings in by_opp.items():
+                opp_name = opp_findings[0].opp_name
+                stage = opp_findings[0].stage
+
+                # Separate by category for inline display
+                stale = [f for f in opp_findings if f.category == "stale_deal"]
+                overdue = [f for f in opp_findings if f.category == "overdue_task"]
+                missing = [f for f in opp_findings if f.category in ("missing_field", "contact_issue", "name_issue")]
+
+                for f in stale:
+                    tag_key = f"{f.opp_id}:{f.category}:{f.field_name or f.description}"
+                    tag = tag_map.get(tag_key, "")
+                    new_badge = " :new:" if tag == "NEW" else ""
+                    lines.append(f"  :hourglass: *Stale:* {opp_name} — {f.description}{new_badge}")
+                    if f.suggested_action:
+                        lines.append(f"    _{f.suggested_action}_")
+
+                for f in overdue:
+                    tag_key = f"{f.opp_id}:{f.category}:{f.field_name or f.description}"
+                    tag = tag_map.get(tag_key, "")
+                    new_badge = " :new:" if tag == "NEW" else ""
+                    lines.append(f"  :alarm_clock: {opp_name} — {f.description}{new_badge}")
+                    if f.suggested_action:
+                        lines.append(f"    _{f.suggested_action}_")
+
+                if missing:
+                    field_descs: list[str] = []
+                    for f in missing:
+                        short = f.field_name or f.description
+                        field_descs.append(short)
+
+                    lines.append(f"  :warning: {opp_name} ({stage}) — {', '.join(field_descs)}")
+                    # Show the most specific suggested action
+                    best_action = next((f.suggested_action for f in missing if f.suggested_action), None)
+                    if best_action:
+                        lines.append(f"    _{best_action}_")
+
+            sections.append("\n".join(lines))
+
+    # -----------------------------------------------------------------------
+    # Info items (low priority, only if there are any)
+    # -----------------------------------------------------------------------
+    if info_items:
+        lines = [f"\n:information_source: *Heads Up* ({len(info_items)})"]
+        for f in info_items:
+            lines.append(f"  {f.opp_name} ({f.stage}): {f.description}")
+        sections.append("\n".join(lines))
+
+    # -----------------------------------------------------------------------
+    # Suggestions ready for review (findings with concrete suggested_value)
+    # -----------------------------------------------------------------------
+    if suggestions:
+        lines = [f"\n:white_check_mark: *Suggestions Ready for Review* ({len(suggestions)})"]
+        for i, f in enumerate(suggestions, 1):
+            lines.append(
+                f"  {i}. Set {f.field_name} = \"{f.suggested_value}\" on {f.opp_name}"
+                f" — {f.suggested_action}"
+            )
+        lines.append("\nReply `@Atlas approve 1` to apply, or `@Atlas approve all` for all suggestions.")
+        sections.append("\n".join(lines))
+
+    return "\n".join(sections)

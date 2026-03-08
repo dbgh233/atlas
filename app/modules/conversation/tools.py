@@ -14,9 +14,8 @@ import structlog
 
 from app.core.clients.ghl import GHLClient
 from app.models.database import AuditRepository
-from app.modules.audit.digest import USER_NAMES
 from app.modules.audit.engine import AuditFinding, AuditResult, run_audit
-from app.modules.audit.rules import FIELD_NAMES, STAGE_NAMES
+from app.modules.audit.rules import FIELD_NAMES, STAGE_NAMES, USER_NAMES
 from app.modules.audit.tracker import TaggedFinding, tag_findings
 
 log = structlog.get_logger()

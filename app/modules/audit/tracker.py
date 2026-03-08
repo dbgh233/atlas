@@ -122,6 +122,9 @@ async def save_snapshot(
             "description": f.finding.description,
             "field_name": f.finding.field_name,
             "suggested_action": f.finding.suggested_action,
+            "severity": f.finding.severity,
+            "suggested_value": f.finding.suggested_value,
+            "owner_hint": f.finding.owner_hint,
             "tag": f.tag,
         }
         for f in tagged
