@@ -95,6 +95,9 @@ def _get_custom_field_value(opp: dict, field_id: str) -> str | None:
             if cf.get("id") == field_id:
                 # GHL uses "value" in search results and "fieldValue" in direct gets
                 val = cf.get("value") or cf.get("fieldValue") or cf.get("field_value", "")
+                # Debug: log what we found for Calendly Event ID field
+                if field_id == "U3dnzBS8MNAh8Gl6oj07":
+                    log.info("debug_custom_field", field_id=field_id, cf_keys=list(cf.keys()), cf_raw=cf, val=val, opp_name=opp.get("name"))
                 if val and str(val).strip():
                     return str(val).strip()
                 return None
