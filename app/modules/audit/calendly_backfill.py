@@ -99,7 +99,7 @@ class BackfillResult:
 
 def _classify_event_type(event_name: str) -> str | None:
     """Classify a Calendly event name as Discovery or Onboarding."""
-    lower = event_name.lower()
+    lower = (event_name or "").lower()
     for substr, appt_type in EVENT_TYPE_MAP.items():
         if substr in lower:
             return appt_type
@@ -398,7 +398,7 @@ def _match_opp_multi_signal(
 
         # Signal 1: Contact email match
         contact = opp.get("contact", {})
-        opp_email = contact.get("email", "").lower().strip()
+        opp_email = (contact.get("email") or "").lower().strip()
         if opp_email != email:
             continue
 
