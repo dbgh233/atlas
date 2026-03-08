@@ -27,6 +27,7 @@ from app.modules.webhooks.router import admin_router as webhooks_admin_router
 from app.modules.webhooks.router import router as webhooks_router
 from app.modules.conversation.agent import ConversationAgent
 from app.modules.health.checks import check_calendly_subscriptions, get_operational_status
+from app.modules.meetings.router import router as meetings_router
 from app.slack_app import set_agent, slack_handler
 
 
@@ -155,6 +156,26 @@ async def lifespan(app: FastAPI):
                 bf_digest = format_backfill_digest(backfill_result)
                 if bf_digest:
                     digest_text += "\n\n" + bf_digest
+
+            # Check commitment follow-through from meetings
+            try:
+                from app.modules.meetings.processor import (
+                    check_commitment_followthrough,
+                    format_commitment_digest,
+                )
+                from app.modules.meetings.repository import CommitmentRepository
+
+                commitment_repo = CommitmentRepository(app.state.db)
+                open_commitments = await commitment_repo.get_open()
+                missed = await commitment_repo.get_missed()
+                if open_commitments or missed:
+                    commitment_digest = format_commitment_digest(
+                        open_commitments, missed
+                    )
+                    if commitment_digest:
+                        digest_text += "\n\n" + commitment_digest
+            except Exception as cm_err:
+                audit_log.error("scheduled_commitment_check_error", error=str(cm_err))
 
             await app.state.slack_client.send_message(digest_text)
             audit_log.info(
@@ -354,3 +375,4 @@ app.include_router(webhooks_router, prefix="/webhooks")
 app.include_router(webhooks_admin_router, prefix="/admin")
 app.include_router(dlq_router, prefix="/admin")
 app.include_router(audit_router, prefix="/audit")
+app.include_router(meetings_router, prefix="/meetings")
