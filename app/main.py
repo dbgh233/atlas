@@ -238,8 +238,67 @@ async def lifespan(app: FastAPI):
         id="subscription_health_check",
     )
 
+    async def _weekly_rollup():
+        """Friday weekly commitment rollup."""
+        from app.modules.meetings.processor import (
+            auto_dismiss_fulfilled,
+            generate_weekly_rollup,
+        )
+
+        rollup_log = structlog.get_logger()
+        rollup_log.info("weekly_rollup_start")
+        try:
+            # Auto-dismiss fulfilled commitments first
+            dismissed = await auto_dismiss_fulfilled(
+                app.state.db, app.state.ghl_client
+            )
+            rollup_log.info("weekly_auto_dismiss", count=len(dismissed))
+
+            # Generate rollup
+            rollup_text = await generate_weekly_rollup(app.state.db)
+            if rollup_text:
+                await app.state.slack_client.send_message(rollup_text)
+            rollup_log.info("weekly_rollup_complete")
+        except Exception as e:
+            rollup_log.error("weekly_rollup_error", error=str(e), exc_info=True)
+
+    app.state.scheduler.add_job(
+        _weekly_rollup,
+        "cron",
+        hour=16,
+        minute=0,
+        day_of_week="fri",
+        id="weekly_rollup",
+    )
+
+    async def _auto_dismiss_check():
+        """Daily auto-dismiss check for fulfilled commitments."""
+        from app.modules.meetings.processor import auto_dismiss_fulfilled
+
+        dismiss_log = structlog.get_logger()
+        try:
+            dismissed = await auto_dismiss_fulfilled(
+                app.state.db, app.state.ghl_client
+            )
+            if dismissed:
+                dismiss_log.info("daily_auto_dismiss", count=len(dismissed))
+        except Exception as e:
+            dismiss_log.error("daily_auto_dismiss_error", error=str(e))
+
+    app.state.scheduler.add_job(
+        _auto_dismiss_check,
+        "cron",
+        hour=7,
+        minute=30,
+        day_of_week="mon-fri",
+        id="daily_auto_dismiss",
+    )
+
     app.state.scheduler.start()
-    log.info("scheduler_started", jobs=["daily_audit_8am_est", "subscription_check_6h"])
+    log.info(
+        "scheduler_started",
+        jobs=["daily_audit_8am_est", "subscription_check_6h", "weekly_rollup_fri_4pm", "daily_auto_dismiss_730am"],
+    )
 
     # Conversational agent (Phase 6)
     conversation_agent = ConversationAgent(

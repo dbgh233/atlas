@@ -176,6 +176,17 @@ class CommitmentRepository:
         )
         return [dict(r) for r in await cursor.fetchall()]
 
+    async def get_by_id(self, commitment_id: int) -> Optional[dict]:
+        """Get a single commitment by ID."""
+        cursor = await self.db.execute(
+            "SELECT c.*, m.title as meeting_title, m.start_time as meeting_date "
+            "FROM commitments c JOIN meetings m ON c.meeting_id = m.id "
+            "WHERE c.id = ?",
+            (commitment_id,),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
 
 class PatternRepository:
     """Database operations for pipeline patterns."""

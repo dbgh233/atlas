@@ -179,6 +179,32 @@ class GHLClient:
         data = resp.json()
         return data.get("contacts", [])
 
+    @retry(**_retry_config)
+    async def create_contact_task(
+        self,
+        contact_id: str,
+        title: str,
+        description: str = "",
+        due_date: str | None = None,
+        assigned_to: str | None = None,
+    ) -> dict:
+        """Create a task on a contact."""
+        log.debug("ghl_create_task", contact_id=contact_id, title=title)
+        body: dict = {"title": title}
+        if description:
+            body["description"] = description
+        if due_date:
+            body["dueDate"] = due_date
+        if assigned_to:
+            body["assignedTo"] = assigned_to
+        resp = await self.http_client.post(
+            f"{self.base_url}/contacts/{contact_id}/tasks",
+            headers=self._headers,
+            json=body,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
 
 def get_ghl_client(request: Request) -> GHLClient:
     """FastAPI dependency — retrieve GHLClient from app state."""

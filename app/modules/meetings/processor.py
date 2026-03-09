@@ -358,6 +358,151 @@ async def check_commitment_followthrough(
     return results
 
 
+async def auto_dismiss_fulfilled(
+    db: aiosqlite.Connection,
+    ghl_client: GHLClient,
+) -> list[dict]:
+    """Auto-dismiss commitments where GHL shows the deal progressed.
+
+    Checks open commitments with linked opportunity IDs and marks them
+    fulfilled if the opp's stage has changed since the commitment was created.
+    """
+    commitment_repo = CommitmentRepository(db)
+    open_commitments = await commitment_repo.get_open()
+
+    dismissed: list[dict] = []
+
+    for c in open_commitments:
+        opp_id = c.get("opportunity_id")
+        if not opp_id:
+            continue
+
+        try:
+            opp = await ghl_client.get_opportunity(opp_id)
+        except Exception:
+            continue
+
+        opp_updated = opp.get("updatedAt", "")
+        commitment_date = c.get("created_at", "")
+
+        if opp_updated > commitment_date:
+            # Deal has activity since commitment — auto-fulfill
+            await commitment_repo.update_status(
+                c["id"],
+                "fulfilled",
+                evidence=f"Auto-dismissed: opp updated at {opp_updated}",
+            )
+            dismissed.append({
+                "id": c["id"],
+                "action": c.get("action"),
+                "assignee_name": c.get("assignee_name"),
+                "merchant_name": c.get("merchant_name"),
+                "opp_id": opp_id,
+            })
+            log.info(
+                "commitment_auto_dismissed",
+                commitment_id=c["id"],
+                opp_id=opp_id,
+            )
+
+    return dismissed
+
+
+async def generate_weekly_rollup(
+    db: aiosqlite.Connection,
+) -> str:
+    """Generate Friday weekly rollup of commitment tracking.
+
+    Summarizes commitments fulfilled, missed, and still open for the week.
+    """
+    # Get all commitments updated this week
+    cursor = await db.execute(
+        "SELECT c.*, m.title as meeting_title, m.start_time as meeting_date "
+        "FROM commitments c JOIN meetings m ON c.meeting_id = m.id "
+        "WHERE c.updated_at >= datetime('now', '-7 days') "
+        "ORDER BY c.assignee_name, c.status",
+    )
+    week_commitments = [dict(r) for r in await cursor.fetchall()]
+
+    # Also get anything still open from before this week
+    cursor2 = await db.execute(
+        "SELECT c.*, m.title as meeting_title, m.start_time as meeting_date "
+        "FROM commitments c JOIN meetings m ON c.meeting_id = m.id "
+        "WHERE c.status = 'open' AND c.updated_at < datetime('now', '-7 days') "
+        "ORDER BY c.assignee_name",
+    )
+    stale_open = [dict(r) for r in await cursor2.fetchall()]
+
+    fulfilled = [c for c in week_commitments if c.get("status") == "fulfilled"]
+    missed = [c for c in week_commitments if c.get("status") == "missed"]
+    dismissed = [c for c in week_commitments if c.get("status") == "dismissed"]
+    still_open = [c for c in week_commitments if c.get("status") == "open"]
+    still_open.extend(stale_open)
+
+    # Get meetings this week
+    cursor3 = await db.execute(
+        "SELECT COUNT(*) FROM meetings WHERE start_time >= datetime('now', '-7 days')",
+    )
+    meeting_count = (await cursor3.fetchone())[0]
+
+    lines: list[str] = []
+    lines.append(":bar_chart: *Weekly Commitment Rollup*")
+    lines.append(f"_{meeting_count} meetings processed this week_\n")
+
+    total = len(fulfilled) + len(missed) + len(dismissed) + len(still_open)
+    if total == 0:
+        lines.append("No commitments tracked this week.")
+        return "\n".join(lines)
+
+    lines.append(
+        f":white_check_mark: Fulfilled: {len(fulfilled)}  "
+        f":red_circle: Missed: {len(missed)}  "
+        f":white_circle: Open: {len(still_open)}  "
+        f":grey_question: Dismissed: {len(dismissed)}"
+    )
+
+    # Group by user
+    from app.modules.audit.rules import SLACK_USER_IDS
+
+    user_stats: dict[str, dict] = {}
+    for c in fulfilled + missed + still_open + dismissed:
+        ghl_id = c.get("assignee_ghl_id") or ""
+        name = c.get("assignee_name", "Unknown")
+        key = ghl_id or name
+        if key not in user_stats:
+            user_stats[key] = {
+                "mention": _user_mention(ghl_id, name),
+                "fulfilled": 0, "missed": 0, "open": 0, "dismissed": 0,
+            }
+        user_stats[key][c.get("status", "open")] += 1
+
+    lines.append("")
+    for key, stats in sorted(user_stats.items(), key=lambda x: x[1]["mention"]):
+        parts = []
+        if stats["fulfilled"]:
+            parts.append(f":white_check_mark: {stats['fulfilled']}")
+        if stats["missed"]:
+            parts.append(f":red_circle: {stats['missed']}")
+        if stats["open"]:
+            parts.append(f":white_circle: {stats['open']}")
+        if stats["dismissed"]:
+            parts.append(f":grey_question: {stats['dismissed']}")
+        lines.append(f"{stats['mention']}: {' | '.join(parts)}")
+
+    # Call out specific missed items
+    if missed:
+        lines.append("\n:rotating_light: *Missed commitments:*")
+        for c in missed[:5]:
+            mention = _user_mention(c.get("assignee_ghl_id"), c.get("assignee_name", "?"))
+            lines.append(f"  {mention}: {c.get('action', '?')} (from {c.get('meeting_title', '?')})")
+
+    # Call out stale open items
+    if stale_open:
+        lines.append(f"\n:warning: *{len(stale_open)} commitment(s) still open from prior weeks*")
+
+    return "\n".join(lines)
+
+
 def _user_mention(ghl_id: str | None, name: str) -> str:
     """Return Slack @mention or display name."""
     from app.modules.audit.rules import SLACK_USER_IDS
@@ -366,6 +511,93 @@ def _user_mention(ghl_id: str | None, name: str) -> str:
         if slack_id:
             return f"<@{slack_id}>"
     return name
+
+
+def build_commitment_blocks(
+    commitments: list[dict],
+    missed: list[dict] | None = None,
+) -> list[dict]:
+    """Build Slack Block Kit blocks for commitments with interactive buttons."""
+    if not commitments and not missed:
+        return []
+
+    blocks: list[dict] = []
+
+    total = len(commitments or []) + len(missed or [])
+    blocks.append({
+        "type": "header",
+        "text": {"type": "plain_text", "text": f"Open Commitments ({total})"},
+    })
+
+    all_items: dict[str, dict] = {}
+    for c in commitments or []:
+        ghl_id = c.get("assignee_ghl_id") or ""
+        name = c.get("assignee_name", "Unknown")
+        key = ghl_id or name
+        if key not in all_items:
+            all_items[key] = {"mention": _user_mention(ghl_id, name), "open": [], "missed": []}
+        all_items[key]["open"].append(c)
+
+    for c in missed or []:
+        ghl_id = c.get("assignee_ghl_id") or ""
+        name = c.get("assignee_name", "Unknown")
+        key = ghl_id or name
+        if key not in all_items:
+            all_items[key] = {"mention": _user_mention(ghl_id, name), "open": [], "missed": []}
+        all_items[key]["missed"].append(c)
+
+    for key, data in sorted(all_items.items(), key=lambda x: x[1]["mention"]):
+        mention = data["mention"]
+        blocks.append({"type": "divider"})
+        blocks.append({
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": f"*{mention}*"},
+        })
+
+        for c in data["missed"]:
+            cid = c.get("id", 0)
+            action = c.get("action", "?")
+            meeting = c.get("meeting_title", "")
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f":red_circle: {action}\n_Overdue, from {meeting}_",
+                },
+                "accessory": {
+                    "type": "overflow",
+                    "action_id": f"commitment_action_{cid}",
+                    "options": [
+                        {"text": {"type": "plain_text", "text": "Dismiss"}, "value": f"dismiss_{cid}"},
+                        {"text": {"type": "plain_text", "text": "Create GHL Task"}, "value": f"create_task_{cid}"},
+                        {"text": {"type": "plain_text", "text": "Mark Fulfilled"}, "value": f"fulfill_{cid}"},
+                    ],
+                },
+            })
+
+        for c in data["open"]:
+            cid = c.get("id", 0)
+            action = c.get("action", "?")
+            deadline = c.get("deadline")
+            deadline_str = f"\n_Due: {deadline}_" if deadline else ""
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f":white_circle: {action}{deadline_str}",
+                },
+                "accessory": {
+                    "type": "overflow",
+                    "action_id": f"commitment_action_{cid}",
+                    "options": [
+                        {"text": {"type": "plain_text", "text": "Dismiss"}, "value": f"dismiss_{cid}"},
+                        {"text": {"type": "plain_text", "text": "Create GHL Task"}, "value": f"create_task_{cid}"},
+                        {"text": {"type": "plain_text", "text": "Mark Fulfilled"}, "value": f"fulfill_{cid}"},
+                    ],
+                },
+            })
+
+    return blocks
 
 
 def format_commitment_digest(

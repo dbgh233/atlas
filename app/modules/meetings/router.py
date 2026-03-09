@@ -7,8 +7,11 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from app.modules.meetings.processor import (
+    auto_dismiss_fulfilled,
+    build_commitment_blocks,
     check_commitment_followthrough,
     format_commitment_digest,
+    generate_weekly_rollup,
     process_transcript,
 )
 from app.modules.meetings.repository import (
@@ -73,10 +76,22 @@ async def ingest_transcript(request: Request) -> JSONResponse:
                 commitment_repo = CommitmentRepository(db)
                 open_commitments = await commitment_repo.get_open()
                 missed = await commitment_repo.get_missed()
-                digest = format_commitment_digest(open_commitments, missed)
-                if digest:
-                    slack_client = request.app.state.slack_client
-                    await slack_client.send_message(digest)
+                slack_client = request.app.state.slack_client
+
+                # Try Block Kit with interactive buttons first
+                if slack_client.web_client:
+                    blocks = build_commitment_blocks(open_commitments, missed)
+                    if blocks:
+                        await slack_client.send_rich_message(
+                            channel="C08RBFA977B",
+                            blocks=blocks,
+                            text=f"Meeting processed: {result.commitments_extracted} commitments from {result.title}",
+                        )
+                else:
+                    # Fallback to plain text webhook
+                    digest = format_commitment_digest(open_commitments, missed)
+                    if digest:
+                        await slack_client.send_message(digest)
             except Exception as e:
                 log.error("meeting_slack_failed", error=str(e))
 
@@ -147,6 +162,52 @@ async def check_followthrough(request: Request) -> JSONResponse:
         )
     except Exception as e:
         log.error("followthrough_error", error=str(e), exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "error": str(e)},
+        )
+
+
+@router.post("/auto-dismiss")
+async def trigger_auto_dismiss(request: Request) -> JSONResponse:
+    """Run auto-dismiss check for fulfilled commitments."""
+    db = request.app.state.db
+    ghl_client = request.app.state.ghl_client
+
+    try:
+        dismissed = await auto_dismiss_fulfilled(db, ghl_client)
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": "ok",
+                "dismissed_count": len(dismissed),
+                "dismissed": dismissed,
+            },
+        )
+    except Exception as e:
+        log.error("auto_dismiss_error", error=str(e), exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "error": str(e)},
+        )
+
+
+@router.post("/weekly-rollup")
+async def trigger_weekly_rollup(request: Request) -> JSONResponse:
+    """Trigger weekly rollup (normally runs Friday 4pm)."""
+    db = request.app.state.db
+
+    try:
+        rollup_text = await generate_weekly_rollup(db)
+        slack_client = request.app.state.slack_client
+        if rollup_text:
+            await slack_client.send_message(rollup_text)
+        return JSONResponse(
+            status_code=200,
+            content={"status": "ok", "rollup": rollup_text},
+        )
+    except Exception as e:
+        log.error("weekly_rollup_error", error=str(e), exc_info=True)
         return JSONResponse(
             status_code=500,
             content={"status": "error", "error": str(e)},
