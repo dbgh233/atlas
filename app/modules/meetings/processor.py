@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import aiosqlite
 import structlog
@@ -97,6 +97,71 @@ class ProcessedMeeting:
     merchants_matched_to_opps: int = 0
     undiscussed_concerns: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+
+
+def _parse_meeting_date(start_time: str) -> datetime:
+    """Parse a meeting start time into a datetime."""
+    for fmt in ("%Y/%m/%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            dt = datetime.strptime(start_time.split("+")[0].split("Z")[0], fmt)
+            return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt
+        except ValueError:
+            continue
+    return datetime.now(UTC)
+
+
+def _normalize_deadline(raw: str | None, meeting_date: datetime) -> str | None:
+    """Convert relative deadlines like 'by Thursday' to actual ISO dates."""
+    if not raw:
+        return None
+
+    lower = raw.lower().strip()
+
+    # Already a date
+    if re.match(r"\d{4}-\d{2}-\d{2}", lower):
+        return raw
+
+    # Day-of-week mapping
+    day_names = {
+        "monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3,
+        "friday": 4, "saturday": 5, "sunday": 6,
+    }
+
+    # "today"
+    if "today" in lower:
+        return meeting_date.strftime("%Y-%m-%d")
+
+    # "tomorrow"
+    if "tomorrow" in lower:
+        return (meeting_date + timedelta(days=1)).strftime("%Y-%m-%d")
+
+    # "end of week" / "this week" / "by end of week"
+    if "end of week" in lower or "this week" in lower or "by eow" in lower:
+        days_until_friday = (4 - meeting_date.weekday()) % 7
+        if days_until_friday == 0:
+            days_until_friday = 7
+        return (meeting_date + timedelta(days=days_until_friday)).strftime("%Y-%m-%d")
+
+    # "by [day]" or just the day name
+    for day_name, day_num in day_names.items():
+        if day_name in lower:
+            days_ahead = (day_num - meeting_date.weekday()) % 7
+            if days_ahead == 0:
+                days_ahead = 7  # Next occurrence
+            return (meeting_date + timedelta(days=days_ahead)).strftime("%Y-%m-%d")
+
+    # "X days" / "in X days"
+    days_match = re.search(r"(\d+)\s*days?", lower)
+    if days_match:
+        return (meeting_date + timedelta(days=int(days_match.group(1)))).strftime("%Y-%m-%d")
+
+    # "X weeks" / "in X weeks"
+    weeks_match = re.search(r"(\d+)\s*weeks?", lower)
+    if weeks_match:
+        return (meeting_date + timedelta(weeks=int(weeks_match.group(1)))).strftime("%Y-%m-%d")
+
+    # Can't parse — return raw
+    return raw
 
 
 def classify_meeting_type(title: str) -> str | None:
@@ -274,11 +339,16 @@ async def process_transcript(
     result.meeting_id = meeting_id
 
     # Store commitments
+    meeting_date = _parse_meeting_date(start_time)
     for c in commitments_data:
         assignee = c.get("assignee", "Unknown")
         ghl_id = _match_assignee_to_ghl(assignee)
         merchant = c.get("merchant_name")
         opp_id = merchant_opp_map.get(merchant) if merchant else None
+
+        # Normalize relative deadlines to actual dates
+        raw_deadline = c.get("deadline")
+        normalized_deadline = _normalize_deadline(raw_deadline, meeting_date)
 
         await commitment_repo.add(
             meeting_id=meeting_id,
@@ -287,7 +357,7 @@ async def process_transcript(
             action=c.get("action", ""),
             merchant_name=merchant,
             opportunity_id=opp_id,
-            deadline=c.get("deadline"),
+            deadline=normalized_deadline,
             source_quote=c.get("source_quote"),
         )
         result.commitments_extracted += 1

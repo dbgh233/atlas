@@ -214,6 +214,21 @@ async def trigger_weekly_rollup(request: Request) -> JSONResponse:
         )
 
 
+@router.post("/commitments/{commitment_id}/dismiss")
+async def dismiss_commitment(request: Request, commitment_id: int) -> JSONResponse:
+    """Dismiss a specific commitment."""
+    db = request.app.state.db
+    try:
+        repo = CommitmentRepository(db)
+        c = await repo.get_by_id(commitment_id)
+        if not c:
+            return JSONResponse(status_code=404, content={"error": "Not found"})
+        await repo.update_status(commitment_id, "dismissed", evidence="Dismissed via API")
+        return JSONResponse(status_code=200, content={"status": "dismissed", "id": commitment_id})
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
 @router.get("/recent")
 async def get_recent_meetings(request: Request) -> JSONResponse:
     """Get recent processed meetings."""

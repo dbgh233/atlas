@@ -166,11 +166,41 @@ Plans:
 
 ---
 
+---
+
+### Phase 9: Calendly Backfill & Meeting Intelligence
+**Goal:** Atlas autonomously fills missing GHL fields by pulling data from Calendly events (Q&A answers, event IDs), ingests meeting transcripts from Otter to extract commitments, tracks follow-through, detects pipeline patterns (recurring topics, agenda gaps), and provides weekly rollups.
+**Depends on:** Phase 4, Phase 6
+**Requirements:** MTG-01 through MTG-08
+**Success Criteria** (what must be TRUE):
+  1. Calendly backfill scans events, matches to GHL opps with 100% confidence (single-match only), writes missing Q&A fields, and verifies writes
+  2. Meeting transcripts are ingested via /meetings/ingest, commitments extracted by Claude, merchants matched to GHL opps
+  3. Commitments are tracked per assignee with Slack @mentions, auto-dismissed when GHL shows progress
+  4. Weekly Friday rollup summarizes commitments fulfilled/missed/open for the week
+  5. Pattern detection surfaces agenda gaps (deals behind SLA not discussed) and recurring topics (3+ meetings without movement)
+  6. Slack Block Kit messages with Dismiss/Create Task/Mark Fulfilled interactive buttons
+
+---
+
+### Phase 10: Pre-Call Intelligence
+**Goal:** Before every scheduled discovery or partner call, Atlas researches the prospect and DMs the assigned sales rep a pre-call brief with rapport points, deal score, and pain point analysis — so reps walk into calls having done exceptional research without manual effort.
+**Depends on:** Phase 9 (needs Calendly event data), Phase 6 (needs Slack DM capability)
+**Requirements:** PRECALL-01 through PRECALL-07
+**Success Criteria** (what must be TRUE):
+  1. Each morning, Atlas checks Calendly for today's discovery/partner calls and identifies the assigned AHG rep
+  2. For each prospect, Atlas searches LinkedIn, company website, and industry databases for background info
+  3. Atlas cross-references prospect details with the rep's LinkedIn/master prompt to find rapport points (shared schools, locations, interests, associations)
+  4. Atlas generates a deal score based on ICP criteria (industry, volume, risk type, processor fit) before the call
+  5. Atlas DMs the assigned rep on Slack with a structured pre-call brief 5-10 minutes before the meeting
+  6. Pre-call briefs include: prospect background, rapport points, potential pain points, deal score, and suggested opening topics
+  7. Reps can react to the brief (thumbs up/down) to train Atlas on what's useful — feedback improves future briefs
+
+---
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
-Note: Phase 4 depends on Phase 1 (not Phase 3), so Phases 3 and 4 could execute in parallel.
+Phases 1-8: Original v1 (complete). Phase 9: Meeting Intelligence (complete). Phase 10: Pre-Call Intelligence (planned).
 
 | Phase | Plans Complete | Status | Completed |
 |-------|---------------|--------|-----------|
@@ -182,3 +212,5 @@ Note: Phase 4 depends on Phase 1 (not Phase 3), so Phases 3 and 4 could execute 
 | 6. Conversational Agent | 3/3 | Complete | 2026-03-05 |
 | 7. Graduated Autonomy | 3/3 | Complete | 2026-03-05 |
 | 8. Operational Readiness | 2/2 | Complete | 2026-03-05 |
+| 9. Calendly Backfill & Meeting Intelligence | - | Complete | 2026-03-09 |
+| 10. Pre-Call Intelligence | 0/? | Planned | - |

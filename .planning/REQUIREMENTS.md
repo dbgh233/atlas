@@ -70,6 +70,28 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **INFRA-09**: Claude Opus 4.6 API client for conversational intelligence (Anthropic SDK)
 - [ ] **INFRA-10**: Slack Events API integration for receiving @mentions and DMs (Agent/Assistant mode)
 
+### Meeting Intelligence (Phase 9)
+
+- [x] **MTG-01**: Calendly backfill — scan recent events, match to GHL opps (email + stage + type + timing), write missing Q&A fields, verify writes
+- [x] **MTG-02**: Meeting transcript ingestion via POST /meetings/ingest — accepts Otter speech data, classifies meeting type
+- [x] **MTG-03**: Commitment extraction — Claude analyzes transcripts, extracts action items with assignee, merchant, deadline, source quote
+- [x] **MTG-04**: Merchant-to-opportunity matching — fuzzy match transcript merchant names to GHL opportunity IDs
+- [x] **MTG-05**: Commitment tracking — open/fulfilled/missed/dismissed states, grouped by user with Slack @mentions
+- [x] **MTG-06**: Auto-dismiss — daily check if linked GHL opps progressed since commitment, auto-mark fulfilled
+- [x] **MTG-07**: Weekly Friday rollup — summarizes commitments fulfilled/missed/open per user for the week
+- [x] **MTG-08**: Pattern detection — agenda gaps (deals behind SLA not discussed in triage), recurring topics (3+ meetings without stage movement)
+- [x] **MTG-09**: Slack Block Kit interactive buttons — Dismiss/Create GHL Task/Mark Fulfilled overflow menus on commitment messages
+
+### Pre-Call Intelligence (Phase 10)
+
+- [ ] **PRECALL-01**: Morning scan of Calendly for today's discovery/partner calls, identify assigned AHG rep per event
+- [ ] **PRECALL-02**: Prospect research — search LinkedIn profile, company website, industry databases for background
+- [ ] **PRECALL-03**: Rapport matching — cross-reference prospect details with rep's LinkedIn/master prompt for shared connections (schools, locations, interests, associations)
+- [ ] **PRECALL-04**: Deal scoring — score prospect against merchant ICP criteria (industry, volume, risk type, processor fit) before the call
+- [ ] **PRECALL-05**: Pre-call brief generation — structured Slack DM to assigned rep 5-10 min before meeting with prospect background, rapport points, pain points, deal score, suggested openers
+- [ ] **PRECALL-06**: Rep feedback loop — thumbs up/down reactions on pre-call briefs to train Atlas on what's useful
+- [ ] **PRECALL-07**: Master prompt context — ingest each rep's selling style, strengths, and personal details to improve rapport point matching
+
 ## v2 Requirements
 
 Deferred to future release. Tracked but not in current roadmap.
