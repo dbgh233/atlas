@@ -34,6 +34,8 @@ async def trigger_precall_briefs(request: Request) -> JSONResponse:
                 claude_client=request.app.state.claude_client,
                 ghl_client=request.app.state.ghl_client,
                 http_client=request.app.state.http_client,
+                google_search_client=getattr(request.app.state, "google_search_client", None),
+                ocean_client=getattr(request.app.state, "ocean_client", None),
             )
         else:
             result = await run_morning_precall_briefs(
@@ -42,6 +44,8 @@ async def trigger_precall_briefs(request: Request) -> JSONResponse:
                 ghl_client=request.app.state.ghl_client,
                 slack_client=request.app.state.slack_client,
                 http_client=request.app.state.http_client,
+                google_search_client=getattr(request.app.state, "google_search_client", None),
+                ocean_client=getattr(request.app.state, "ocean_client", None),
             )
         return JSONResponse(status_code=200, content=result)
     except Exception as e:

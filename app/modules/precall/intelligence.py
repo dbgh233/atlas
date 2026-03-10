@@ -16,6 +16,8 @@ import structlog
 from app.core.clients.calendly import CalendlyClient
 from app.core.clients.claude import ClaudeClient
 from app.core.clients.ghl import GHLClient
+from app.core.clients.google_search import GoogleSearchClient
+from app.core.clients.ocean import OceanClient
 from app.core.clients.slack import SlackClient
 from app.modules.precall.rep_profiles import (
     AHG_CONTEXT,
@@ -165,6 +167,21 @@ def _compute_confidence(prospect_data: dict) -> tuple[str, int]:
     if prospect_data.get("linkedin_url"):
         score += 10
 
+    # Google search results
+    max_score += 10
+    if prospect_data.get("google_search_info"):
+        score += 10
+
+    # Ocean.io company data
+    max_score += 10
+    if prospect_data.get("ocean_company_info"):
+        score += 10
+
+    # Ocean.io person data
+    max_score += 10
+    if prospect_data.get("ocean_person_info"):
+        score += 10
+
     pct = round((score / max_score) * 100) if max_score > 0 else 0
 
     if pct >= 70:
@@ -256,6 +273,12 @@ async def generate_precall_brief(
         prospect_text.append(f"CRM data:\n{prospect_data['ghl_data']}")
     if prospect_data.get("linkedin_url"):
         prospect_text.append(f"LinkedIn: {prospect_data['linkedin_url']}")
+    if prospect_data.get("google_search_info"):
+        prospect_text.append(f"Google search results:\n{prospect_data['google_search_info']}")
+    if prospect_data.get("ocean_company_info"):
+        prospect_text.append(f"Company intelligence (Ocean.io):\n{prospect_data['ocean_company_info']}")
+    if prospect_data.get("ocean_person_info"):
+        prospect_text.append(f"Person intelligence (Ocean.io):\n{prospect_data['ocean_person_info']}")
     if prospect_data.get("event_type"):
         prospect_text.append(f"Call type: {prospect_data['event_type']}")
 
@@ -363,6 +386,8 @@ async def run_morning_precall_briefs(
     ghl_client: GHLClient,
     slack_client: SlackClient,
     http_client: httpx.AsyncClient,
+    google_search_client: GoogleSearchClient | None = None,
+    ocean_client: OceanClient | None = None,
 ) -> dict:
     """Main orchestrator: fetch today's calls, research each prospect, DM the rep."""
     result = {
@@ -388,6 +413,8 @@ async def run_morning_precall_briefs(
                 ghl_client=ghl_client,
                 slack_client=slack_client,
                 http_client=http_client,
+                google_search_client=google_search_client,
+                ocean_client=ocean_client,
             )
             result["briefs_sent"] += 1
         except Exception as e:
@@ -409,6 +436,8 @@ async def run_precall_dry_run(
     claude_client: ClaudeClient,
     ghl_client: GHLClient,
     http_client: httpx.AsyncClient,
+    google_search_client: GoogleSearchClient | None = None,
+    ocean_client: OceanClient | None = None,
 ) -> dict:
     """Generate briefs but return them as JSON instead of sending to Slack.
 
@@ -442,6 +471,7 @@ async def run_precall_dry_run(
             try:
                 prospect_data = await _gather_prospect_data(
                     invitee, call, ghl_client, http_client,
+                    google_search_client, ocean_client,
                 )
                 confidence_label, confidence_pct = _compute_confidence(prospect_data)
                 brief = await generate_precall_brief(claude_client, prospect_data, rep_profile)
@@ -470,6 +500,10 @@ async def run_precall_dry_run(
                         "calendly_qa": bool(prospect_data.get("calendly_answers")),
                         "website": bool(prospect_data.get("website_info")),
                         "ghl_crm": bool(prospect_data.get("ghl_data")),
+                        "google_search": bool(prospect_data.get("google_search_info")),
+                        "ocean_company": bool(prospect_data.get("ocean_company_info")),
+                        "ocean_person": bool(prospect_data.get("ocean_person_info")),
+                        "linkedin_url": prospect_data.get("linkedin_url"),
                         "company_domain": prospect_data.get("company_domain"),
                     },
                 })
@@ -495,8 +529,10 @@ async def _gather_prospect_data(
     call: dict,
     ghl_client: GHLClient,
     http_client: httpx.AsyncClient,
+    google_search_client: GoogleSearchClient | None = None,
+    ocean_client: OceanClient | None = None,
 ) -> dict:
-    """Gather all available data about a prospect."""
+    """Gather all available data about a prospect from all sources."""
     prospect_name = invitee.get("name", "")
     prospect_email = invitee.get("email", "")
 
@@ -546,6 +582,68 @@ async def _gather_prospect_data(
                     ghl_parts.append(f"{k}: {v}")
         if ghl_parts:
             prospect_data["ghl_data"] = "\n".join(ghl_parts)
+
+    # Google Custom Search enrichment (prospect + company)
+    if google_search_client and prospect_name:
+        try:
+            search_result = await google_search_client.search_prospect(
+                prospect_name, domain,
+            )
+            if search_result.get("results"):
+                snippets = "\n".join(
+                    f"- {r['title']}: {r['snippet']}" for r in search_result["results"][:3]
+                )
+                prospect_data["google_search_info"] = snippets
+            if search_result.get("linkedin_url"):
+                prospect_data["linkedin_url"] = search_result["linkedin_url"]
+        except Exception as e:
+            log.warning("precall_google_search_failed", name=prospect_name, error=str(e))
+
+    # Ocean.io enrichment (company + person)
+    if ocean_client:
+        if domain:
+            try:
+                company_data = await ocean_client.enrich_company(domain)
+                if company_data:
+                    ocean_parts = []
+                    if company_data.get("description"):
+                        ocean_parts.append(f"About: {company_data['description']}")
+                    if company_data.get("industry"):
+                        ocean_parts.append(f"Industry: {company_data['industry']}")
+                    if company_data.get("employee_count"):
+                        ocean_parts.append(f"Employees: {company_data['employee_count']}")
+                    if company_data.get("revenue"):
+                        ocean_parts.append(f"Revenue: {company_data['revenue']}")
+                    if company_data.get("headquarters"):
+                        ocean_parts.append(f"HQ: {company_data['headquarters']}")
+                    if company_data.get("specialties"):
+                        ocean_parts.append(f"Specialties: {', '.join(company_data['specialties'][:5])}")
+                    if ocean_parts:
+                        prospect_data["ocean_company_info"] = "\n".join(ocean_parts)
+            except Exception as e:
+                log.warning("precall_ocean_company_failed", domain=domain, error=str(e))
+
+        if prospect_name:
+            try:
+                person_data = await ocean_client.enrich_person(prospect_name, domain)
+                if person_data:
+                    person_parts = []
+                    if person_data.get("job_title"):
+                        person_parts.append(f"Title: {person_data['job_title']}")
+                    if person_data.get("location"):
+                        person_parts.append(f"Location: {person_data['location']}")
+                    if person_data.get("linkedin_url") and not prospect_data.get("linkedin_url"):
+                        prospect_data["linkedin_url"] = person_data["linkedin_url"]
+                    if person_data.get("experiences"):
+                        exp_text = "; ".join(
+                            f"{e['title']} at {e['company']}" for e in person_data["experiences"] if e.get("title")
+                        )
+                        if exp_text:
+                            person_parts.append(f"Experience: {exp_text}")
+                    if person_parts:
+                        prospect_data["ocean_person_info"] = "\n".join(person_parts)
+            except Exception as e:
+                log.warning("precall_ocean_person_failed", name=prospect_name, error=str(e))
 
     return prospect_data
 
@@ -600,6 +698,8 @@ async def _process_single_call(
     ghl_client: GHLClient,
     slack_client: SlackClient,
     http_client: httpx.AsyncClient,
+    google_search_client: GoogleSearchClient | None = None,
+    ocean_client: OceanClient | None = None,
 ) -> None:
     """Research a prospect and DM the assigned rep."""
     invitees = call.get("invitees", [])
@@ -616,7 +716,10 @@ async def _process_single_call(
         if not prospect_email:
             continue
 
-        prospect_data = await _gather_prospect_data(invitee, call, ghl_client, http_client)
+        prospect_data = await _gather_prospect_data(
+            invitee, call, ghl_client, http_client,
+            google_search_client, ocean_client,
+        )
         prospect_name = prospect_data.get("name", prospect_email)
         confidence_label, confidence_pct = _compute_confidence(prospect_data)
 

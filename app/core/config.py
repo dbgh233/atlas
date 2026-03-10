@@ -45,6 +45,13 @@ class Settings(BaseSettings):
     # --- Otter AI (optional — enables automatic meeting ingestion) ---
     otter_api_key: str = ""
 
+    # --- Google Custom Search (optional — enables prospect/company enrichment) ---
+    google_search_api_key: str = ""
+    google_search_engine_id: str = ""
+
+    # --- Ocean.io (optional — enables company enrichment) ---
+    oceans_api_key: str = ""
+
     # --- Railway ---
     railway_domain: str = "atlas-production-248a.up.railway.app"
 
