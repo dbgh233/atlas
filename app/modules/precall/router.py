@@ -106,3 +106,80 @@ async def list_reps(request: Request) -> JSONResponse:
             "total": len(reps),
         },
     )
+
+
+@router.get("/test-enrichment")
+async def test_enrichment(request: Request) -> JSONResponse:
+    """Diagnostic endpoint — test each enrichment source directly.
+
+    Query params:
+        domain — company domain to test (default: vitalpeptique.com)
+        name — prospect name to test (default: Gary Trinh)
+    """
+    domain = request.query_params.get("domain", "vitalpeptique.com")
+    name = request.query_params.get("name", "Gary Trinh")
+    results: dict = {"domain": domain, "name": name, "clients": {}}
+
+    # Check which clients are initialized
+    google_client = getattr(request.app.state, "google_search_client", None)
+    ocean_client = getattr(request.app.state, "ocean_client", None)
+    ninjapear_client = getattr(request.app.state, "ninjapear_client", None)
+
+    results["clients"]["google_search"] = "initialized" if google_client else "None (missing API key)"
+    results["clients"]["ocean"] = "initialized" if ocean_client else "None (missing API key)"
+    results["clients"]["ninjapear"] = "initialized" if ninjapear_client else "None (missing API key)"
+
+    # Test Google Custom Search
+    if google_client:
+        try:
+            search_result = await google_client.search_prospect(name, domain)
+            results["google_search"] = {
+                "status": "ok",
+                "query": search_result.get("query", ""),
+                "results_count": len(search_result.get("results", [])),
+                "linkedin_url": search_result.get("linkedin_url"),
+                "linkedin_snippet": search_result.get("linkedin_snippet", "")[:200],
+                "top_results": [
+                    {"title": r["title"], "link": r["link"]}
+                    for r in search_result.get("results", [])[:3]
+                ],
+            }
+        except Exception as e:
+            results["google_search"] = {"status": "error", "error": str(e)}
+
+    # Test Ocean.io company enrichment
+    if ocean_client:
+        try:
+            company_data = await ocean_client.enrich_company(domain)
+            if company_data:
+                results["ocean_company"] = {
+                    "status": "ok",
+                    "name": company_data.get("name", ""),
+                    "description": (company_data.get("description", "") or "")[:200],
+                    "industries": company_data.get("industries", []),
+                    "company_size": company_data.get("company_size", ""),
+                    "keywords_count": len(company_data.get("keywords", [])),
+                }
+            else:
+                results["ocean_company"] = {"status": "returned_none"}
+        except Exception as e:
+            results["ocean_company"] = {"status": "error", "error": str(e)}
+
+    # Test Ocean.io person enrichment
+    if ocean_client:
+        try:
+            person_data = await ocean_client.enrich_person(name, domain)
+            if person_data:
+                results["ocean_person"] = {
+                    "status": "ok",
+                    "name": person_data.get("name", ""),
+                    "job_title": person_data.get("job_title", ""),
+                    "location": person_data.get("location", ""),
+                    "linkedin_url": person_data.get("linkedin_url", ""),
+                }
+            else:
+                results["ocean_person"] = {"status": "returned_none"}
+        except Exception as e:
+            results["ocean_person"] = {"status": "error", "error": str(e)}
+
+    return JSONResponse(status_code=200, content=results)
