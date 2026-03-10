@@ -24,54 +24,95 @@ REP_PROFILES: dict[str, dict] = {
         "slack_user_id": "U08H642F692",
         "calendly_email": "hmashburn@ahgpay.com",
         "linkedin_url": "https://www.linkedin.com/in/easypayments/",
-        "role": "Account Executive",
-        "location": "East Coast, US",
+        "role": "Chief Strategy Officer & Co-Founder",
+        "location": "South Florida",
         "master_prompt": (
-            "Henry is an Account Executive at AHG Payments specializing in high-risk "
-            "payment processing. He works with merchants in CBD/hemp, nutraceuticals, "
-            "peptides, supplements, and alternative wellness verticals. He focuses on "
-            "building genuine relationships and understanding merchant pain points before "
-            "presenting solutions. His approach is consultative, not transactional."
+            "Henry Mashburn is the CSO & Co-Founder of Alternative Horizons Group. Age 26. "
+            "He leads sales, revenue, marketing, and strategy for AHG Payments, a retail ISO "
+            "specializing in high-risk merchants. His sales philosophy is consultative and "
+            "story-driven — never hard-sell. He demonstrates expertise through success stories, "
+            "maintains non-desperate positioning, and focuses on merchant growth and success "
+            "metrics. Average onboarding is 7-14 business days from signature to processing. "
+            "AHG's competitive differentiators: no volume caps, direct relationships with sponsor "
+            "banks/processors, same-day issue resolution, niche expertise in CBD/Hemp/Alternative "
+            "Wellness, vetted ecosystem of partner solutions (DTC agencies, fulfillment, manufacturing), "
+            "and political advocacy (CBD/Hemp lobbying in Washington DC). Focus on client growth "
+            "vs. churn-and-burn model."
         ),
         "personal_context": (
-            "Henry is based on the East Coast. He's personable and relationship-focused. "
-            "He values authentic connection in sales conversations and tends to open calls "
-            "with genuine interest in the person before discussing business."
+            "Born in Lima, Peru. Multicultural background — American father, Honduran mother. "
+            "Lived in Peru and Suriname, moved to US at age 11. Extensive international travel "
+            "(all continents except Australia, Africa, Antarctica). Former competitive soccer "
+            "player — University of Michigan for 3 years, Peru U-17/U-20 national teams. "
+            "Goalkeeper mentality (results-driven, competitive). Bilingual English/Spanish. "
+            "Education: Biopsychology, Cognition & Neuroscience degree from University of Michigan. "
+            "Lives with girlfriend Melody in South Florida. Values: faith, service, learning, "
+            "integrity, gratitude. Enneagram Type 7 (Enthusiast) with Type 3 (Achiever) tendencies — "
+            "high energy, variety-seeking, optimistic. Natural storyteller. Relationship-focused "
+            "approach from multicultural background."
         ),
         "rapport_interests": [
-            "payments industry",
-            "high-risk processing",
-            "merchant services",
-            "entrepreneurship",
-            "business development",
+            "soccer / football (played competitively, Peru national teams)",
+            "University of Michigan (alma mater)",
+            "Peru / Latin America / Honduras",
+            "international travel (visited most continents)",
+            "South Florida lifestyle",
+            "entrepreneurship and startups",
+            "CBD/hemp/alternative wellness industry",
+            "payments and fintech",
+            "neuroscience / biopsychology",
+            "faith and service",
+            "Spanish language / bilingual",
         ],
+        # Last updated from master prompt: September 2025
+        # Next refresh: Q1 2026
     },
     "ishovan@ahgpay.com": {
         "name": "Ism Shovan",
         "slack_user_id": "U09ECH8G1K9",
         "calendly_email": "ishovan@ahgpay.com",
         "linkedin_url": "https://www.linkedin.com/in/ismshovan/",
-        "role": "Account Executive",
+        "role": "Customer Success Manager",
         "location": "Central US (CST timezone)",
         "master_prompt": (
-            "Ism Shovan is an Account Executive at AHG Payments. He works with merchants "
-            "seeking reliable payment processing in high-risk verticals including CBD, "
-            "nutraceuticals, peptides, and alternative wellness. Ism is thorough in "
-            "understanding each merchant's specific needs and matching them with the right "
-            "processing solution."
+            "Ism Shovan is the Customer Success Manager at Alternative Horizons Group. He leads "
+            "customer success and implementation for payments and merchant services, ensuring "
+            "seamless onboarding, world-class support, and long-term partnerships. His expertise "
+            "spans SaaS client success, onboarding, account management, technical support, and "
+            "process optimization. He handles gateway setup, POS, Authorize.net, and NMI integration. "
+            "Communication style: professional yet approachable, combining clarity, empathy, and "
+            "supportive presence. Prefers concise, actionable insights over fluff. Excels at turning "
+            "ambiguity into clarity. Enneagram: Type 1 (Reformer — principled, structured), Type 3 "
+            "(Achiever — goal-oriented, adaptable), Type 8 (Challenger — decisive, assertive). "
+            "Principles-first: never oversells capabilities. Trust, adoption, and long-term retention "
+            "guide every decision."
         ),
         "personal_context": (
-            "Ism is based in the Central US timezone. He brings a detail-oriented approach "
-            "to merchant relationships and is focused on finding the right fit for each "
-            "prospect's processing needs."
+            "Born in the Philippines, moved to the US in grade school. Has two families: American "
+            "family (the Shovans, who adopted him in high school) and Filipino family in the "
+            "Philippines. Christian faith is the most important part of his life — priorities are "
+            "faith first, family second, work third. Married to Elisabeth for 9+ years, has a "
+            "3.5-year-old daughter and another child expected. They've traveled to 30+ countries "
+            "together — daughter has visited 20+ countries. Travel is a major passion — specializes "
+            "in credit card points and miles, loves helping others unlock travel experiences. "
+            "Career path from Apple to SaaS startups in customer service and client success. "
+            "Long-term goal is to join the C-suite. Proven remote worker who performs at a high "
+            "level even while traveling abroad."
         ),
         "rapport_interests": [
-            "payments industry",
-            "high-risk processing",
-            "merchant services",
-            "business growth",
-            "fintech",
+            "travel (30+ countries, points and miles expert)",
+            "Philippines / Filipino heritage",
+            "Christian faith and community",
+            "family life (young children, parenting)",
+            "Apple (former employee)",
+            "SaaS and customer success",
+            "payments and merchant services",
+            "process optimization and automation",
+            "credit card rewards and travel hacking",
+            "remote work and digital nomad lifestyle",
         ],
+        # Last updated from master prompt: 2025
+        # Next refresh: Q2 2026
     },
 }
 
