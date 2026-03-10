@@ -3,12 +3,17 @@
 Scans Calendly for today's upcoming calls, researches prospects using
 available data (Calendly Q&A, GHL contacts, company websites), and
 DMs the assigned rep on Slack with a rapport-focused pre-call brief.
+
+Brief format adapts based on rep role:
+- Sales reps get prospect research, rapport hooks, pain points, AHG positioning
+- CS reps get account health, support tickets, integration status, open commitments
 """
 
 from __future__ import annotations
 
 import re
 from datetime import UTC, datetime, timedelta
+from difflib import SequenceMatcher
 
 import httpx
 import structlog
@@ -111,6 +116,44 @@ async def _fetch_website_snippet(domain: str, http_client: httpx.AsyncClient) ->
         return ""
 
 
+def _names_match(prospect_name: str, linkedin_name: str) -> bool:
+    """Check if a LinkedIn result name plausibly matches the prospect.
+
+    Uses fuzzy matching on first/last name components to avoid wrong-person
+    LinkedIn profiles contaminating the brief.
+    """
+    if not prospect_name or not linkedin_name:
+        return False
+
+    prospect_parts = prospect_name.lower().strip().split()
+    linkedin_parts = linkedin_name.lower().strip().split()
+
+    if not prospect_parts or not linkedin_parts:
+        return False
+
+    # Check if first name matches (or is close)
+    first_ratio = SequenceMatcher(None, prospect_parts[0], linkedin_parts[0]).ratio()
+    if first_ratio < 0.7:
+        return False
+
+    # Check if last name matches (if both have one)
+    if len(prospect_parts) > 1 and len(linkedin_parts) > 1:
+        last_ratio = SequenceMatcher(None, prospect_parts[-1], linkedin_parts[-1]).ratio()
+        if last_ratio < 0.7:
+            return False
+
+    return True
+
+
+def _is_sales_rep(rep_profile: dict | None) -> bool:
+    """Determine if a rep is in a sales role (vs customer success)."""
+    if not rep_profile:
+        return True  # Default to sales brief
+    role = (rep_profile.get("role") or "").lower()
+    cs_keywords = ["customer success", "account manager", "implementation", "support", "onboarding"]
+    return not any(kw in role for kw in cs_keywords)
+
+
 async def _find_ghl_contact(
     ghl_client: GHLClient, email: str, name: str,
 ) -> dict | None:
@@ -135,73 +178,80 @@ def _compute_confidence(prospect_data: dict) -> tuple[str, int]:
     """Compute a confidence score for the brief based on data availability.
 
     Returns (label, percentage) like ("High", 85).
+
+    Scoring weights reflect actual value to brief quality:
+    - Calendly Q&A is most valuable (prospect self-reported context)
+    - LinkedIn + search results are key for rapport
+    - Company data (website, Ocean.io) drives positioning
+    - GHL CRM shows existing relationship depth
     """
     score = 0
-    max_score = 0
+    max_score = 100  # Fixed denominator for stable percentages
 
-    # Name (basic)
-    max_score += 10
+    # Name (baseline)
     if prospect_data.get("name"):
+        score += 5
+
+    # Email domain / company identified
+    if prospect_data.get("company_domain"):
         score += 10
 
-    # Email domain / company
-    max_score += 15
-    if prospect_data.get("company_domain"):
+    # Website info (rich company context)
+    if prospect_data.get("website_info"):
         score += 15
 
-    # Website info (rich company data)
-    max_score += 20
-    if prospect_data.get("website_info"):
-        score += 20
-
-    # Calendly Q&A (prospect-provided context)
-    max_score += 25
+    # Calendly Q&A (highest value — prospect's own words)
     if prospect_data.get("calendly_answers"):
-        score += 25
+        score += 20
 
     # GHL CRM data (existing relationship data)
-    max_score += 20
     if prospect_data.get("ghl_data"):
-        score += 20
+        score += 15
 
-    # LinkedIn found
-    max_score += 10
+    # LinkedIn found (verified match — critical for rapport)
     if prospect_data.get("linkedin_url"):
-        score += 10
+        score += 15
 
-    # Google search results
-    max_score += 10
+    # Search results (general web presence)
     if prospect_data.get("google_search_info"):
-        score += 10
+        score += 8
 
     # Ocean.io company data
-    max_score += 10
     if prospect_data.get("ocean_company_info"):
-        score += 10
+        score += 7
 
     # Ocean.io person data
-    max_score += 10
     if prospect_data.get("ocean_person_info"):
-        score += 10
+        score += 5
 
-    pct = round((score / max_score) * 100) if max_score > 0 else 0
+    pct = min(score, 100)
 
-    if pct >= 70:
+    if pct >= 65:
         return "High", pct
-    elif pct >= 40:
+    elif pct >= 35:
         return "Medium", pct
     else:
         return "Low", pct
 
 
-# The prompt instructs Claude to output Slack mrkdwn (not standard markdown).
-BRIEF_PROMPT = """You are a pre-call intelligence analyst for AHG Payments.
+# Slack mrkdwn formatting rules shared across all brief prompts.
+_SLACK_FORMAT_RULES = """IMPORTANT FORMATTING RULES — you are writing for Slack, NOT standard markdown:
+- Use *text* for bold (single asterisks, NOT double)
+- Use _text_ for italic (underscores)
+- Use bullet points with dashes (-)
+- Do NOT use ## or ### headers — use *Bold Text* on its own line instead
+- Do NOT use **text** — that does NOT work in Slack
+- Use regular dashes (-) or double dashes (--), NOT em dashes or en dashes
+- Use only basic ASCII characters — avoid special Unicode characters"""
+
+# Sales brief: prospect research, rapport hooks, pain points, AHG positioning
+SALES_BRIEF_PROMPT = """You are a pre-call intelligence analyst for AHG Payments.
 
 AHG COMPANY CONTEXT:
 {ahg_context}
 
-A sales rep has an upcoming call with a prospect. Generate a concise, actionable pre-call
-brief that helps the rep build rapport and come across as exceptionally well-prepared.
+A sales rep has an upcoming discovery/partner call with a prospect. Generate a concise,
+actionable pre-call brief that helps the rep build rapport and position AHG effectively.
 
 PROSPECT DATA:
 {prospect_data}
@@ -209,49 +259,88 @@ PROSPECT DATA:
 REP PROFILE:
 {rep_info}
 
-IMPORTANT FORMATTING RULES — you are writing for Slack, NOT standard markdown:
-- Use *text* for bold (single asterisks, NOT double)
-- Use _text_ for italic (underscores)
-- Use bullet points with the actual bullet character or dashes
-- Do NOT use ## or ### headers — use *Bold Text* on its own line instead
-- Do NOT use **text** — that does NOT work in Slack
-- Keep it clean and readable
-- Use regular dashes (-) or double dashes (--), NOT em dashes or en dashes
-- Use only basic ASCII characters — avoid special Unicode characters
+""" + _SLACK_FORMAT_RULES + """
 
 Generate a brief with these sections:
 
 *Who They Are*
-2-3 sentences about this person and their company. Be specific about what the company does
-and their likely role. If data is limited, say what we do know and flag what we don't.
+2-3 sentences. Be specific about what their company does, their role, and their likely
+decision-making authority. If data is limited, say what we know and flag gaps.
 
-*Rapport Openers*
-3-5 bullet points the rep can use in the first 5-10 minutes to build genuine connection.
-Focus on:
-- Mutual groups, associations, or industry connections
-- Shared educational backgrounds or alma maters
-- Sports, hobbies, or regional connections
-- Location-based conversation (where they're from, local references)
-- Any overlap between the rep's background and the prospect's
-If you don't have enough data, suggest 2-3 safe, natural openers based on their industry.
+*Rapport Hooks*
+3-5 bullet points for the first 5-10 minutes. Prioritize:
+- Specific overlaps between the rep's background and the prospect's (shared schools, cities, interests)
+- Industry-specific talking points that show expertise
+- Location or regional connections
+- Any mutual connections or shared groups
+Only include hooks grounded in actual data. If limited, suggest 2-3 natural industry openers.
 
 *Their Likely Pain Points*
-2-3 bullet points about what payment processing challenges they probably face,
-based on their industry, company size, and what AHG solves.
+2-3 bullet points. Be specific to their industry and company size — generic "payment processing
+is hard" is not useful. Connect pain points to what we actually know about them.
 
 *How to Position AHG*
-2-3 bullet points on which AHG value props will resonate most with this specific prospect.
+2-3 bullet points on which specific AHG capabilities will resonate. Reference their industry,
+their current situation, and concrete differentiators (not generic value props).
 
-*Conversation Starters*
-2-3 natural, non-salesy opening lines. These should feel like genuine curiosity,
-not a pitch.
-
-*Watch Out For*
-Anything to be careful about — red flags, sensitive topics, or things to verify.
+*Heads Up*
+Only include if there's something genuinely important to flag — regulatory risks for their
+product type, recent negative press, compliance considerations, or contradictory data.
+Skip this section entirely if there's nothing non-obvious to flag.
 
 Keep it conversational and practical — like a trusted colleague giving a quick heads-up
 before a call. Be honest when data is limited rather than making things up.
-Keep the total brief under 400 words."""
+Keep the total brief under 350 words."""
+
+# CS brief: account health, support context, integration status, open items
+CS_BRIEF_PROMPT = """You are a customer success intelligence analyst for AHG Payments.
+
+AHG COMPANY CONTEXT:
+{ahg_context}
+
+A Customer Success Manager has an upcoming call with an existing client. Generate a concise,
+actionable pre-call brief focused on account health and preparation for the meeting.
+
+CLIENT DATA:
+{prospect_data}
+
+CS REP PROFILE:
+{rep_info}
+
+""" + _SLACK_FORMAT_RULES + """
+
+Generate a brief with these sections:
+
+*Account Snapshot*
+2-3 sentences. Company name, what they do, how long they've been with AHG, current processing
+status. Include any key numbers (processing volume, transaction counts) if available.
+
+*Meeting Context*
+What this meeting is likely about based on the event type, any Q&A responses, and recent
+account activity. Flag whether this is onboarding, integration support, account review, or
+issue resolution.
+
+*Open Items*
+Bullet any outstanding items from CRM data, recent support interactions, or previous meeting
+commitments. If none found, note "No open items found in available data."
+
+*Account Health Signals*
+2-3 bullet points on positive and negative signals:
+- Processing stability (active, holds, reserves)
+- Recent support interactions or escalations
+- Integration status (gateway setup, POS, etc.)
+- Any compliance or risk flags
+
+*Rapport Hooks*
+2-3 bullet points for personal connection. Prioritize specific overlaps between the CS rep's
+background and the client's. Only include hooks grounded in actual data.
+
+*Preparation Notes*
+1-2 bullet points on what to have ready for this call (specific integrations, documentation,
+account details to pull up).
+
+Keep it concise and action-oriented. Focus on what the CS rep needs to DO, not just know.
+Keep the total brief under 350 words."""
 
 
 async def generate_precall_brief(
@@ -259,7 +348,7 @@ async def generate_precall_brief(
     prospect_data: dict,
     rep_profile: dict | None,
 ) -> str:
-    """Use Claude to generate a pre-call rapport brief."""
+    """Use Claude to generate a pre-call brief, adapted to the rep's role."""
     prospect_text = []
     if prospect_data.get("name"):
         prospect_text.append(f"Name: {prospect_data['name']}")
@@ -278,7 +367,7 @@ async def generate_precall_brief(
     if prospect_data.get("linkedin_profile_info"):
         prospect_text.append(f"LinkedIn profile summary: {prospect_data['linkedin_profile_info']}")
     if prospect_data.get("google_search_info"):
-        prospect_text.append(f"Google search results:\n{prospect_data['google_search_info']}")
+        prospect_text.append(f"Web search results:\n{prospect_data['google_search_info']}")
     if prospect_data.get("ocean_company_info"):
         prospect_text.append(f"Company intelligence (Ocean.io):\n{prospect_data['ocean_company_info']}")
     if prospect_data.get("ocean_person_info"):
@@ -311,7 +400,11 @@ async def generate_precall_brief(
         f"Differentiators: {'; '.join(AHG_CONTEXT['differentiators'][:3])}"
     )
 
-    prompt = BRIEF_PROMPT.format(
+    # Pick prompt based on rep role
+    is_sales = _is_sales_rep(rep_profile)
+    template = SALES_BRIEF_PROMPT if is_sales else CS_BRIEF_PROMPT
+
+    prompt = template.format(
         ahg_context=ahg_text,
         prospect_data="\n".join(prospect_text) if prospect_text else "Limited data available.",
         rep_info="\n".join(rep_text) if rep_text else "No additional rep info available.",
@@ -589,7 +682,7 @@ async def _gather_prospect_data(
         if ghl_parts:
             prospect_data["ghl_data"] = "\n".join(ghl_parts)
 
-    # Google Custom Search enrichment (prospect + company)
+    # Web search enrichment (prospect + company) via Serper or Google
     if google_search_client and prospect_name:
         try:
             search_result = await google_search_client.search_prospect(
@@ -600,12 +693,39 @@ async def _gather_prospect_data(
                     f"- {r['title']}: {r['snippet']}" for r in search_result["results"][:3]
                 )
                 prospect_data["google_search_info"] = snippets
-            if search_result.get("linkedin_url"):
-                prospect_data["linkedin_url"] = search_result["linkedin_url"]
-            if search_result.get("linkedin_snippet"):
-                prospect_data["linkedin_profile_info"] = search_result["linkedin_snippet"]
+
+            # LinkedIn URL validation — only accept if the name on the result
+            # plausibly matches the prospect to avoid wrong-person contamination
+            li_url = search_result.get("linkedin_url")
+            li_snippet = search_result.get("linkedin_snippet", "")
+            if li_url:
+                # Extract name from LinkedIn URL path or snippet title
+                li_name = ""
+                for r in search_result.get("results", []):
+                    if r.get("link") == li_url:
+                        # LinkedIn titles are typically "Name - Title - Company | LinkedIn"
+                        li_name = r.get("title", "").split(" - ")[0].split(" | ")[0].strip()
+                        break
+                if li_name and _names_match(prospect_name, li_name):
+                    prospect_data["linkedin_url"] = li_url
+                    if li_snippet:
+                        prospect_data["linkedin_profile_info"] = li_snippet
+                    log.info("linkedin_match_verified", prospect=prospect_name, linkedin_name=li_name)
+                elif not li_name:
+                    # Can't verify — include but flag
+                    prospect_data["linkedin_url"] = li_url
+                    if li_snippet:
+                        prospect_data["linkedin_profile_info"] = li_snippet
+                    log.info("linkedin_match_unverified", prospect=prospect_name, url=li_url)
+                else:
+                    log.info(
+                        "linkedin_match_rejected",
+                        prospect=prospect_name,
+                        linkedin_name=li_name,
+                        url=li_url,
+                    )
         except Exception as e:
-            log.warning("precall_google_search_failed", name=prospect_name, error=str(e))
+            log.warning("precall_search_failed", name=prospect_name, error=str(e))
 
     # Ocean.io enrichment (company + person)
     if ocean_client:
@@ -669,17 +789,21 @@ def _build_dm_message(
 ) -> str:
     """Build a formatted Slack DM message for a pre-call brief."""
     domain = prospect_data.get("company_domain")
+    linkedin_url = prospect_data.get("linkedin_url")
 
-    # Build links section
+    # Build links section — use actual LinkedIn URL when found, fallback to search
     links = []
     if domain:
         links.append(f"<https://{domain}|:globe_with_meridians: Website>")
-    prospect_name = prospect_data.get("name", "")
-    if prospect_name:
-        search_name = prospect_name.replace(" ", "%20")
-        links.append(
-            f"<https://www.linkedin.com/search/results/all/?keywords={search_name}|:bust_in_silhouette: LinkedIn>"
-        )
+    if linkedin_url:
+        links.append(f"<{linkedin_url}|:bust_in_silhouette: LinkedIn>")
+    else:
+        prospect_name = prospect_data.get("name", "")
+        if prospect_name:
+            search_name = prospect_name.replace(" ", "%20")
+            links.append(
+                f"<https://www.linkedin.com/search/results/all/?keywords={search_name}|:mag: LinkedIn Search>"
+            )
 
     # Confidence emoji
     conf_emoji = ":large_green_circle:" if confidence_label == "High" else (
@@ -698,6 +822,25 @@ def _build_dm_message(
 
     dm_parts.append("")
     dm_parts.append(brief)
+
+    # Data source attribution footer
+    sources = []
+    if prospect_data.get("calendly_answers"):
+        sources.append("Calendly Q&A")
+    if prospect_data.get("ghl_data"):
+        sources.append("GHL CRM")
+    if prospect_data.get("website_info"):
+        sources.append("Website")
+    if prospect_data.get("google_search_info"):
+        sources.append("Web Search")
+    if linkedin_url:
+        sources.append("LinkedIn")
+    if prospect_data.get("ocean_company_info") or prospect_data.get("ocean_person_info"):
+        sources.append("Ocean.io")
+
+    if sources:
+        dm_parts.append("")
+        dm_parts.append(f"_Sources: {', '.join(sources)}_")
 
     return "\n".join(dm_parts)
 
