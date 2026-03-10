@@ -274,6 +274,8 @@ async def generate_precall_brief(
         prospect_text.append(f"CRM data:\n{prospect_data['ghl_data']}")
     if prospect_data.get("linkedin_url"):
         prospect_text.append(f"LinkedIn: {prospect_data['linkedin_url']}")
+    if prospect_data.get("linkedin_profile_info"):
+        prospect_text.append(f"LinkedIn profile summary: {prospect_data['linkedin_profile_info']}")
     if prospect_data.get("google_search_info"):
         prospect_text.append(f"Google search results:\n{prospect_data['google_search_info']}")
     if prospect_data.get("ocean_company_info"):
@@ -599,6 +601,8 @@ async def _gather_prospect_data(
                 prospect_data["google_search_info"] = snippets
             if search_result.get("linkedin_url"):
                 prospect_data["linkedin_url"] = search_result["linkedin_url"]
+            if search_result.get("linkedin_snippet"):
+                prospect_data["linkedin_profile_info"] = search_result["linkedin_snippet"]
         except Exception as e:
             log.warning("precall_google_search_failed", name=prospect_name, error=str(e))
 

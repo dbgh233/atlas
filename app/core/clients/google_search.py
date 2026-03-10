@@ -168,10 +168,32 @@ class GoogleSearchClient:
                 linkedin_url = link
                 break
 
+        # If no LinkedIn URL found in general search, do a targeted LinkedIn search
+        linkedin_snippet = ""
+        if not linkedin_url:
+            try:
+                li_results = await self._search(
+                    f"site:linkedin.com/in {name.strip()}", num=3,
+                )
+                for r in li_results:
+                    if "linkedin.com/in/" in r.get("link", ""):
+                        linkedin_url = r["link"]
+                        linkedin_snippet = r.get("snippet", "")
+                        break
+            except Exception:
+                pass
+        else:
+            # Extract snippet from the LinkedIn result we already found
+            for r in results:
+                if r.get("link") == linkedin_url:
+                    linkedin_snippet = r.get("snippet", "")
+                    break
+
         return {
             "query": query,
             "results": results,
             "linkedin_url": linkedin_url,
+            "linkedin_snippet": linkedin_snippet,
         }
 
     async def search_company(self, domain: str) -> dict:
