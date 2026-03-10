@@ -19,6 +19,7 @@ from app.core.clients.ghl import GHLClient
 from app.core.clients.google_search import GoogleSearchClient
 from app.core.clients.ninjapear import NinjaPearClient
 from app.core.clients.ocean import OceanClient
+from app.core.clients.serper import SerperClient
 from app.core.clients.slack import SlackClient
 from app.modules.precall.rep_profiles import (
     AHG_CONTEXT,
@@ -389,7 +390,7 @@ async def run_morning_precall_briefs(
     ghl_client: GHLClient,
     slack_client: SlackClient,
     http_client: httpx.AsyncClient,
-    google_search_client: GoogleSearchClient | None = None,
+    google_search_client: GoogleSearchClient | SerperClient | None = None,
     ocean_client: OceanClient | None = None,
     ninjapear_client: NinjaPearClient | None = None,
 ) -> dict:
@@ -441,7 +442,7 @@ async def run_precall_dry_run(
     claude_client: ClaudeClient,
     ghl_client: GHLClient,
     http_client: httpx.AsyncClient,
-    google_search_client: GoogleSearchClient | None = None,
+    google_search_client: GoogleSearchClient | SerperClient | None = None,
     ocean_client: OceanClient | None = None,
 ) -> dict:
     """Generate briefs but return them as JSON instead of sending to Slack.
@@ -534,7 +535,7 @@ async def _gather_prospect_data(
     call: dict,
     ghl_client: GHLClient,
     http_client: httpx.AsyncClient,
-    google_search_client: GoogleSearchClient | None = None,
+    google_search_client: GoogleSearchClient | SerperClient | None = None,
     ocean_client: OceanClient | None = None,
 ) -> dict:
     """Gather all available data about a prospect from all sources."""
@@ -707,7 +708,7 @@ async def _process_single_call(
     ghl_client: GHLClient,
     slack_client: SlackClient,
     http_client: httpx.AsyncClient,
-    google_search_client: GoogleSearchClient | None = None,
+    google_search_client: GoogleSearchClient | SerperClient | None = None,
     ocean_client: OceanClient | None = None,
     ninjapear_client: NinjaPearClient | None = None,
 ) -> None:

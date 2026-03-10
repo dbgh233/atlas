@@ -20,6 +20,7 @@ from app.core.clients.ghl import GHLClient
 from app.core.clients.google_search import GoogleSearchClient
 from app.core.clients.ninjapear import NinjaPearClient
 from app.core.clients.ocean import OceanClient
+from app.core.clients.serper import SerperClient
 from app.core.clients.slack import SlackClient
 from app.core.config import get_settings
 from app.core.database import Database
@@ -88,17 +89,23 @@ async def lifespan(app: FastAPI):
         web_client=AsyncWebClient(token=settings.slack_bot_token) if settings.slack_bot_token else None,
     )
 
-    # Google Custom Search client (optional enrichment)
-    if settings.google_search_api_key and settings.google_search_engine_id:
+    # Search client — prefer Serper.dev, fall back to Google Custom Search
+    if settings.serper_api_key:
+        app.state.google_search_client = SerperClient(
+            http_client=app.state.http_client,
+            api_key=settings.serper_api_key,
+        )
+        log.info("search_client_ready", provider="serper")
+    elif settings.google_search_api_key and settings.google_search_engine_id:
         app.state.google_search_client = GoogleSearchClient(
             http_client=app.state.http_client,
             api_key=settings.google_search_api_key,
             search_engine_id=settings.google_search_engine_id,
         )
-        log.info("google_search_client_ready")
+        log.info("search_client_ready", provider="google_custom_search")
     else:
         app.state.google_search_client = None
-        log.info("google_search_client_skipped", reason="no_api_key")
+        log.info("search_client_skipped", reason="no_api_key")
 
     # Ocean.io client (optional enrichment)
     if settings.oceans_api_key:

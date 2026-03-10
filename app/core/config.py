@@ -45,9 +45,12 @@ class Settings(BaseSettings):
     # --- Otter AI (optional — enables automatic meeting ingestion) ---
     otter_api_key: str = ""
 
-    # --- Google Custom Search (optional — enables prospect/company enrichment) ---
+    # --- Google Custom Search (DEPRECATED — closed to new customers, use Serper) ---
     google_search_api_key: str = ""
     google_search_engine_id: str = ""
+
+    # --- Serper.dev (replaces Google Custom Search for prospect enrichment) ---
+    serper_api_key: str = ""
 
     # --- Ocean.io (optional — enables company enrichment) ---
     oceans_api_key: str = ""
