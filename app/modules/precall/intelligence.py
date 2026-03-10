@@ -394,7 +394,7 @@ async def _process_single_call(
         if call_time:
             try:
                 dt = datetime.fromisoformat(call_time.replace("Z", "+00:00"))
-                time_str = dt.strftime("%-I:%M %p")
+                time_str = dt.strftime("%I:%M %p").lstrip("0")
             except Exception:
                 time_str = call_time
         else:
