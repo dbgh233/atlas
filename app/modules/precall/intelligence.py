@@ -197,6 +197,8 @@ IMPORTANT FORMATTING RULES — you are writing for Slack, NOT standard markdown:
 - Do NOT use ## or ### headers — use *Bold Text* on its own line instead
 - Do NOT use **text** — that does NOT work in Slack
 - Keep it clean and readable
+- Use regular dashes (-) or double dashes (--), NOT em dashes or en dashes
+- Use only basic ASCII characters — avoid special Unicode characters
 
 Generate a brief with these sections:
 
@@ -288,7 +290,13 @@ async def generate_precall_brief(
         rep_info="\n".join(rep_text) if rep_text else "No additional rep info available.",
     )
 
-    return await claude_client.ask(prompt)
+    raw = await claude_client.ask(prompt)
+    # Sanitize Unicode characters that display as garbled text in Slack
+    sanitized = raw.replace("\u2014", " -- ").replace("\u2013", " - ")
+    sanitized = sanitized.replace("\u2018", "'").replace("\u2019", "'")
+    sanitized = sanitized.replace("\u201c", '"').replace("\u201d", '"')
+    sanitized = sanitized.replace("\u2264", "<=").replace("\u2265", ">=")
+    return sanitized
 
 
 async def get_todays_calls(
