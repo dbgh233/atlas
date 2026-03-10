@@ -26,7 +26,6 @@ async def trigger_precall_briefs(request: Request) -> JSONResponse:
         dry_run=true — generate briefs but return them as JSON instead of sending to Slack.
     """
     dry_run = request.query_params.get("dry_run", "").lower() in ("true", "1", "yes")
-    full_day = request.query_params.get("full_day", "").lower() in ("true", "1", "yes")
 
     try:
         if dry_run:
@@ -37,7 +36,6 @@ async def trigger_precall_briefs(request: Request) -> JSONResponse:
                 http_client=request.app.state.http_client,
                 google_search_client=getattr(request.app.state, "google_search_client", None),
                 ocean_client=getattr(request.app.state, "ocean_client", None),
-                full_day=full_day,
             )
         else:
             result = await run_morning_precall_briefs(

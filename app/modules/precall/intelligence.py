@@ -421,14 +421,8 @@ async def generate_precall_brief(
 
 async def get_todays_calls(
     calendly_client: CalendlyClient,
-    full_day: bool = False,
 ) -> list[dict]:
-    """Fetch today's Calendly events that look like prospect calls.
-
-    Args:
-        full_day: If True, scan entire day (including past events). Useful for
-                  testing/replay. Default False scans only upcoming events.
-    """
+    """Fetch today's upcoming Calendly events that look like prospect calls."""
     user_info = await calendly_client.get_current_user()
     org_uri = user_info.get("resource", {}).get("current_organization")
     if not org_uri:
@@ -436,16 +430,11 @@ async def get_todays_calls(
         return []
 
     now = datetime.now(UTC)
-    if full_day:
-        start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        min_time = start_of_day.isoformat()
-    else:
-        min_time = now.isoformat()
     end_of_day = now.replace(hour=23, minute=59, second=59)
 
     events = await calendly_client.list_scheduled_events(
         organization_uri=org_uri,
-        min_start_time=min_time,
+        min_start_time=now.isoformat(),
         max_start_time=end_of_day.isoformat(),
         status="active",
     )
@@ -548,7 +537,6 @@ async def run_precall_dry_run(
     http_client: httpx.AsyncClient,
     google_search_client: GoogleSearchClient | SerperClient | None = None,
     ocean_client: OceanClient | None = None,
-    full_day: bool = False,
 ) -> dict:
     """Generate briefs but return them as JSON instead of sending to Slack.
 
@@ -561,7 +549,7 @@ async def run_precall_dry_run(
     }
 
     try:
-        calls = await get_todays_calls(calendly_client, full_day=full_day)
+        calls = await get_todays_calls(calendly_client)
     except Exception as e:
         result["errors"].append(f"Failed to fetch Calendly events: {e}")
         return result
