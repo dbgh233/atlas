@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     # --- Ocean.io (optional — enables company enrichment) ---
     oceans_api_key: str = ""
 
+    # --- NinjaPear/Proxycurl (optional — LinkedIn profile enrichment) ---
+    ninjapear_api_key: str = ""
+
     # --- Railway ---
     railway_domain: str = "atlas-production-248a.up.railway.app"
 

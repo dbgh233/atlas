@@ -29,8 +29,11 @@ class OceanClient:
         try:
             resp = await self.http_client.post(
                 f"{BASE_URL}/enrich/company",
-                headers={"x-api-token": self.api_key},
-                json={"domain": domain},
+                headers={
+                    "x-api-token": self.api_key,
+                    "Content-Type": "application/json",
+                },
+                json={"company": {"domain": domain}},
                 timeout=10.0,
             )
             if resp.status_code != 200:
@@ -41,13 +44,14 @@ class OceanClient:
             return {
                 "name": data.get("name", ""),
                 "description": data.get("description", ""),
-                "industry": data.get("industry", ""),
+                "industries": data.get("industries", []),
+                "linkedin_industry": data.get("linkedinIndustry", ""),
+                "company_size": data.get("companySize", ""),
                 "employee_count": data.get("employeeCount"),
                 "revenue": data.get("revenue", ""),
-                "headquarters": data.get("headquarters", ""),
-                "founding_year": data.get("foundingYear"),
-                "linkedin_url": data.get("linkedinUrl", ""),
-                "specialties": data.get("specialties", []),
+                "primary_country": data.get("primaryCountry", ""),
+                "keywords": data.get("keywords", [])[:10],
+                "linkedin_url": data.get("linkedin", ""),
                 "technologies": data.get("technologies", []),
             }
         except Exception as e:
@@ -59,12 +63,19 @@ class OceanClient:
         if not name:
             return None
         try:
-            payload: dict = {"name": name}
+            person: dict = {"name": name}
+            company: dict = {}
             if domain:
-                payload["domain"] = domain
+                company["domain"] = domain
+            payload: dict = {"people": [person]}
+            if company:
+                payload["company"] = company
             resp = await self.http_client.post(
-                f"{BASE_URL}/enrich/person",
-                headers={"x-api-token": self.api_key},
+                f"{BASE_URL}/enrich/company",
+                headers={
+                    "x-api-token": self.api_key,
+                    "Content-Type": "application/json",
+                },
                 json=payload,
                 timeout=10.0,
             )
@@ -72,20 +83,16 @@ class OceanClient:
                 log.warning("ocean_person_enrich_failed", name=name, status=resp.status_code)
                 return None
             data = resp.json()
+            # Person data may be nested in the people array of the response
+            people = data.get("people", [])
+            if not people:
+                return None
+            person_data = people[0] if people else {}
             return {
-                "name": data.get("name", ""),
-                "job_title": data.get("jobTitle", ""),
-                "linkedin_url": data.get("linkedinUrl", ""),
-                "location": data.get("location", ""),
-                "skills": data.get("skills", []),
-                "experiences": [
-                    {
-                        "title": exp.get("title", ""),
-                        "company": exp.get("companyName", ""),
-                        "description": exp.get("description", ""),
-                    }
-                    for exp in (data.get("experiences") or [])[:3]
-                ],
+                "name": person_data.get("name", ""),
+                "job_title": person_data.get("jobTitle", ""),
+                "linkedin_url": person_data.get("linkedin", ""),
+                "location": person_data.get("country", ""),
             }
         except Exception as e:
             log.error("ocean_person_enrich_error", name=name, error=str(e))

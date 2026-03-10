@@ -18,6 +18,7 @@ from app.core.clients.calendly import CalendlyClient
 from app.core.clients.claude import ClaudeClient
 from app.core.clients.ghl import GHLClient
 from app.core.clients.google_search import GoogleSearchClient
+from app.core.clients.ninjapear import NinjaPearClient
 from app.core.clients.ocean import OceanClient
 from app.core.clients.slack import SlackClient
 from app.core.config import get_settings
@@ -109,6 +110,17 @@ async def lifespan(app: FastAPI):
     else:
         app.state.ocean_client = None
         log.info("ocean_client_skipped", reason="no_api_key")
+
+    # NinjaPear/Proxycurl client (optional LinkedIn enrichment)
+    if settings.ninjapear_api_key:
+        app.state.ninjapear_client = NinjaPearClient(
+            http_client=app.state.http_client,
+            api_key=settings.ninjapear_api_key,
+        )
+        log.info("ninjapear_client_ready")
+    else:
+        app.state.ninjapear_client = None
+        log.info("ninjapear_client_skipped", reason="no_api_key")
 
     # Scheduler with daily audit at 8 AM EST (AUDIT-01)
     app.state.scheduler = AsyncIOScheduler(timezone="US/Eastern")
@@ -336,6 +348,7 @@ async def lifespan(app: FastAPI):
                 http_client=app.state.http_client,
                 google_search_client=app.state.google_search_client,
                 ocean_client=app.state.ocean_client,
+                ninjapear_client=app.state.ninjapear_client,
             )
             precall_log.info(
                 "precall_morning_complete",

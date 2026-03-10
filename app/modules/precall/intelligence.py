@@ -17,6 +17,7 @@ from app.core.clients.calendly import CalendlyClient
 from app.core.clients.claude import ClaudeClient
 from app.core.clients.ghl import GHLClient
 from app.core.clients.google_search import GoogleSearchClient
+from app.core.clients.ninjapear import NinjaPearClient
 from app.core.clients.ocean import OceanClient
 from app.core.clients.slack import SlackClient
 from app.modules.precall.rep_profiles import (
@@ -388,6 +389,7 @@ async def run_morning_precall_briefs(
     http_client: httpx.AsyncClient,
     google_search_client: GoogleSearchClient | None = None,
     ocean_client: OceanClient | None = None,
+    ninjapear_client: NinjaPearClient | None = None,
 ) -> dict:
     """Main orchestrator: fetch today's calls, research each prospect, DM the rep."""
     result = {
@@ -415,6 +417,7 @@ async def run_morning_precall_briefs(
                 http_client=http_client,
                 google_search_client=google_search_client,
                 ocean_client=ocean_client,
+                ninjapear_client=ninjapear_client,
             )
             result["briefs_sent"] += 1
         except Exception as e:
@@ -606,18 +609,20 @@ async def _gather_prospect_data(
                 company_data = await ocean_client.enrich_company(domain)
                 if company_data:
                     ocean_parts = []
+                    if company_data.get("name"):
+                        ocean_parts.append(f"Company: {company_data['name']}")
                     if company_data.get("description"):
                         ocean_parts.append(f"About: {company_data['description']}")
-                    if company_data.get("industry"):
-                        ocean_parts.append(f"Industry: {company_data['industry']}")
-                    if company_data.get("employee_count"):
-                        ocean_parts.append(f"Employees: {company_data['employee_count']}")
+                    if company_data.get("industries"):
+                        ocean_parts.append(f"Industries: {', '.join(company_data['industries'][:3])}")
+                    elif company_data.get("linkedin_industry"):
+                        ocean_parts.append(f"Industry: {company_data['linkedin_industry']}")
+                    if company_data.get("company_size"):
+                        ocean_parts.append(f"Company size: {company_data['company_size']}")
                     if company_data.get("revenue"):
                         ocean_parts.append(f"Revenue: {company_data['revenue']}")
-                    if company_data.get("headquarters"):
-                        ocean_parts.append(f"HQ: {company_data['headquarters']}")
-                    if company_data.get("specialties"):
-                        ocean_parts.append(f"Specialties: {', '.join(company_data['specialties'][:5])}")
+                    if company_data.get("keywords"):
+                        ocean_parts.append(f"Keywords: {', '.join(company_data['keywords'][:8])}")
                     if ocean_parts:
                         prospect_data["ocean_company_info"] = "\n".join(ocean_parts)
             except Exception as e:
@@ -700,6 +705,7 @@ async def _process_single_call(
     http_client: httpx.AsyncClient,
     google_search_client: GoogleSearchClient | None = None,
     ocean_client: OceanClient | None = None,
+    ninjapear_client: NinjaPearClient | None = None,
 ) -> None:
     """Research a prospect and DM the assigned rep."""
     invitees = call.get("invitees", [])
