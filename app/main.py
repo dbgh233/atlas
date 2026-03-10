@@ -28,6 +28,7 @@ from app.modules.webhooks.router import router as webhooks_router
 from app.modules.conversation.agent import ConversationAgent
 from app.modules.health.checks import check_calendly_subscriptions, get_operational_status
 from app.modules.meetings.router import router as meetings_router
+from app.modules.precall.router import router as precall_router
 from app.slack_app import set_agent, slack_handler
 
 
@@ -294,6 +295,38 @@ async def lifespan(app: FastAPI):
         id="daily_auto_dismiss",
     )
 
+    # Pre-call intelligence (Phase 10) — morning briefs before discovery calls
+    async def _morning_precall_briefs():
+        """Send pre-call intelligence DMs to reps with upcoming prospect calls."""
+        from app.modules.precall.intelligence import run_morning_precall_briefs
+
+        precall_log = structlog.get_logger()
+        precall_log.info("precall_morning_start")
+        try:
+            result = await run_morning_precall_briefs(
+                calendly_client=app.state.calendly_client,
+                claude_client=app.state.claude_client,
+                ghl_client=app.state.ghl_client,
+                slack_client=app.state.slack_client,
+                http_client=app.state.http_client,
+            )
+            precall_log.info(
+                "precall_morning_complete",
+                calls=result["calls_found"],
+                briefs=result["briefs_sent"],
+            )
+        except Exception as e:
+            precall_log.error("precall_morning_error", error=str(e), exc_info=True)
+
+    app.state.scheduler.add_job(
+        _morning_precall_briefs,
+        "cron",
+        hour=7,
+        minute=30,
+        day_of_week="mon-fri",
+        id="morning_precall_briefs",
+    )
+
     # Otter meeting sync (if API key configured)
     if settings.otter_api_key:
         from app.core.clients.otter import OtterClient
@@ -331,7 +364,7 @@ async def lifespan(app: FastAPI):
         log.info("otter_client_skipped", reason="no_api_key")
 
     app.state.scheduler.start()
-    jobs = ["daily_audit_8am_est", "subscription_check_6h", "weekly_rollup_fri_4pm", "daily_auto_dismiss_730am"]
+    jobs = ["daily_audit_8am_est", "subscription_check_6h", "weekly_rollup_fri_4pm", "daily_auto_dismiss_730am", "precall_briefs_730am"]
     if settings.otter_api_key:
         jobs.append("otter_sync_2h")
     log.info("scheduler_started", jobs=jobs)
@@ -487,3 +520,4 @@ app.include_router(webhooks_admin_router, prefix="/admin")
 app.include_router(dlq_router, prefix="/admin")
 app.include_router(audit_router, prefix="/audit")
 app.include_router(meetings_router, prefix="/meetings")
+app.include_router(precall_router, prefix="/precall")

@@ -54,6 +54,20 @@ class SlackClient:
         )
         log.info("slack_rich_sent", channel=channel)
 
+    async def send_dm(self, user_email: str, text: str) -> None:
+        """Send a direct message to a user by their email address."""
+        if not self.web_client:
+            raise RuntimeError("WebClient not configured — cannot send DMs")
+        # Look up user by email
+        lookup = await self.web_client.users_lookupByEmail(email=user_email)
+        user_id = lookup["user"]["id"]
+        # Open DM channel
+        conv = await self.web_client.conversations_open(users=[user_id])
+        dm_channel = conv["channel"]["id"]
+        # Send message
+        await self.web_client.chat_postMessage(channel=dm_channel, text=text)
+        log.info("slack_dm_sent", user_email=user_email)
+
     async def post_to_channel(self, channel: str, text: str) -> None:
         """Post a text-only message via WebClient (not webhook)."""
         if not self.web_client:
