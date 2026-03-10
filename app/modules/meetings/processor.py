@@ -60,10 +60,12 @@ Do NOT include vague statements or general discussion.
 
 For each commitment, provide:
 - assignee: First name of the person responsible (Henry, Hannah, Drew, Ism, June)
-- action: What they committed to do (be specific, include merchant name if mentioned)
-- merchant_name: The merchant/company name if one was mentioned (null if general)
+- action: What they committed to do. CRITICAL: ALWAYS include the specific merchant/company name in the action text. Never use vague references like "the client" or "that merchant" — use the actual name. If the context makes the merchant name clear from surrounding discussion, include it. Example: "Call Buzz Tips to get hemp license update" NOT "Call the operating agreement client"
+- merchant_name: The merchant/company name if one was mentioned (null ONLY if truly general/process-level)
 - deadline: Any mentioned deadline ("by Friday", "today", "this week", "end of day") or null
 - source_quote: The approximate quote from the transcript (keep short, 1-2 sentences max)
+
+IMPORTANT: This meeting is a pipeline triage where the team discusses specific deals in their CRM. When someone commits to an action during discussion of a specific merchant, ALWAYS tie that action to the merchant being discussed at that point in the conversation, even if the person didn't explicitly say the merchant name in their commitment sentence. Use conversation context.
 
 Also provide:
 - merchants_discussed: List of ALL merchant/company names mentioned in the meeting

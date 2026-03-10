@@ -84,6 +84,14 @@ class MeetingRepository:
         row = await cursor.fetchone()
         return dict(row) if row else None
 
+    async def get_by_otter_id(self, otter_speech_id: str) -> Optional[dict]:
+        """Get a meeting by Otter speech ID (for dedup)."""
+        cursor = await self.db.execute(
+            "SELECT * FROM meetings WHERE otter_speech_id = ?", (otter_speech_id,)
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
 
 class CommitmentRepository:
     """Database operations for meeting commitments."""

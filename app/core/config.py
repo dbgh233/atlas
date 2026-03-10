@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     # --- Calendly webhook (required for webhook verification) ---
     calendly_webhook_secret: str
 
+    # --- Otter AI (optional — enables automatic meeting ingestion) ---
+    otter_api_key: str = ""
+
     # --- Railway ---
     railway_domain: str = "atlas-production-248a.up.railway.app"
 

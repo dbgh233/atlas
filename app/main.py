@@ -294,11 +294,47 @@ async def lifespan(app: FastAPI):
         id="daily_auto_dismiss",
     )
 
+    # Otter meeting sync (if API key configured)
+    if settings.otter_api_key:
+        from app.core.clients.otter import OtterClient
+        app.state.otter_client = OtterClient(
+            api_key=settings.otter_api_key,
+            http_client=app.state.http_client,
+        )
+        log.info("otter_client_ready")
+
+        async def _otter_sync():
+            """Periodic Otter meeting sync."""
+            from app.modules.meetings.otter_sync import sync_otter_meetings
+
+            otter_log = structlog.get_logger()
+            try:
+                result = await sync_otter_meetings(
+                    otter_client=app.state.otter_client,
+                    db=app.state.db,
+                    claude_client=app.state.claude_client,
+                    ghl_client=app.state.ghl_client,
+                    slack_client=app.state.slack_client,
+                )
+                otter_log.info("otter_sync_complete", **result)
+            except Exception as e:
+                otter_log.error("otter_sync_error", error=str(e))
+
+        app.state.scheduler.add_job(
+            _otter_sync,
+            "interval",
+            hours=2,
+            id="otter_meeting_sync",
+        )
+    else:
+        app.state.otter_client = None
+        log.info("otter_client_skipped", reason="no_api_key")
+
     app.state.scheduler.start()
-    log.info(
-        "scheduler_started",
-        jobs=["daily_audit_8am_est", "subscription_check_6h", "weekly_rollup_fri_4pm", "daily_auto_dismiss_730am"],
-    )
+    jobs = ["daily_audit_8am_est", "subscription_check_6h", "weekly_rollup_fri_4pm", "daily_auto_dismiss_730am"]
+    if settings.otter_api_key:
+        jobs.append("otter_sync_2h")
+    log.info("scheduler_started", jobs=jobs)
 
     # Conversational agent (Phase 6)
     conversation_agent = ConversationAgent(

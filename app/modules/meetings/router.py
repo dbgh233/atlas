@@ -229,6 +229,35 @@ async def dismiss_commitment(request: Request, commitment_id: int) -> JSONRespon
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 
+@router.post("/sync-otter")
+async def trigger_otter_sync(request: Request) -> JSONResponse:
+    """Manually trigger Otter meeting sync."""
+    otter_client = getattr(request.app.state, "otter_client", None)
+    if not otter_client:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Otter API key not configured. Set OTTER_API_KEY env var."},
+        )
+
+    from app.modules.meetings.otter_sync import sync_otter_meetings
+
+    try:
+        result = await sync_otter_meetings(
+            otter_client=otter_client,
+            db=request.app.state.db,
+            claude_client=request.app.state.claude_client,
+            ghl_client=request.app.state.ghl_client,
+            slack_client=request.app.state.slack_client,
+        )
+        return JSONResponse(status_code=200, content=result)
+    except Exception as e:
+        log.error("otter_sync_error", error=str(e), exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "error": str(e)},
+        )
+
+
 @router.get("/recent")
 async def get_recent_meetings(request: Request) -> JSONResponse:
     """Get recent processed meetings."""
