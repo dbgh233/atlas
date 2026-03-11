@@ -187,3 +187,60 @@ async def get_audit_trend(request: Request) -> JSONResponse:
             status_code=500,
             content={"status": "error", "error": str(e)},
         )
+
+
+@router.get("/accountability")
+async def get_accountability(request: Request) -> JSONResponse:
+    """Return current accountability items per user for debugging/review."""
+    from app.models.database import AccountabilityRepository
+    from app.modules.audit.rules import USER_NAMES
+
+    db = request.app.state.db
+    try:
+        repo = AccountabilityRepository(db)
+        result = {}
+        for ghl_id, name in USER_NAMES.items():
+            if ghl_id == "Unassigned":
+                continue
+            items = await repo.get_open_for_user(ghl_id)
+            result[name] = {
+                "open_count": len(items),
+                "items": [
+                    {
+                        "opp_name": i["opp_name"],
+                        "description": i["description"],
+                        "status": i["status"],
+                        "first_seen_at": i["first_seen_at"],
+                    }
+                    for i in items[:10]
+                ],
+            }
+        return JSONResponse(status_code=200, content=result)
+    except Exception as e:
+        log.error("accountability_error", error=str(e), exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "error": str(e)},
+        )
+
+
+@router.post("/scorecard")
+async def trigger_scorecard(request: Request) -> JSONResponse:
+    """Manually trigger the weekly accountability scorecard."""
+    from app.modules.audit.scorecard import generate_weekly_scorecard, send_weekly_scorecard
+
+    db = request.app.state.db
+    slack_client = request.app.state.slack_client
+    try:
+        text = await generate_weekly_scorecard(db)
+        await send_weekly_scorecard(db, slack_client)
+        return JSONResponse(
+            status_code=200,
+            content={"status": "sent", "scorecard_text": text},
+        )
+    except Exception as e:
+        log.error("scorecard_error", error=str(e), exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "error": str(e)},
+        )
