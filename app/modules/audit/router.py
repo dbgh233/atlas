@@ -6,9 +6,8 @@ import structlog
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
-from app.core.config import get_settings
 from app.modules.audit.calendly_backfill import format_backfill_digest, run_calendly_backfill
-from app.modules.audit.digest import format_digest, format_digest_blocks
+from app.modules.audit.digest import format_digest
 from app.modules.audit.engine import run_audit
 from app.modules.audit.tracker import get_trend_comparison, save_snapshot, tag_findings
 
@@ -60,21 +59,106 @@ async def trigger_audit(request: Request) -> JSONResponse:
         except Exception as e:
             log.error("audit_slack_digest_failed", error=str(e))
 
-        # Send interactive Block Kit buttons if audit channel is configured
-        settings = get_settings()
-        audit_channel = settings.slack_audit_channel
-        if audit_channel and slack_client.web_client:
-            try:
-                blocks = format_digest_blocks(result, tagged=tagged)
+        # Personal DM dispatch + accountability tracking + CEO mirror
+        dm_summary = {"users_dm_sent": 0, "items_upserted": 0}
+        try:
+            from app.models.database import AccountabilityRepository
+            from app.modules.audit.ceo_mirror import send_ceo_mirror
+            from app.modules.audit.dm_digest import format_personal_dm, group_findings_by_user
+            from app.modules.audit.rules import SLACK_USER_IDS, USER_NAMES
+            from app.modules.audit.verification import reopen_snoozed_items, verify_resolutions
+
+            acct_repo = AccountabilityRepository(db)
+
+            await reopen_snoozed_items(db)
+            verification_results = await verify_resolutions(db, ghl_client)
+
+            by_user = group_findings_by_user(tagged)
+            log.info("dm_dispatch_grouping", users=list(by_user.keys()), total_findings=len(tagged))
+            dm_results = []
+
+            for user_ghl_id, user_findings in by_user.items():
+                slack_id = SLACK_USER_IDS.get(user_ghl_id)
+                if not slack_id:
+                    log.info("dm_dispatch_skip_no_slack", user_ghl_id=user_ghl_id, findings=len(user_findings))
+                    continue
+
+                prev_items = await acct_repo.get_open_for_user(user_ghl_id)
+                overdue_count = result.overdue_task_counts.get(user_ghl_id, 0)
+                text_fallback, blocks = format_personal_dm(
+                    user_ghl_id, user_findings, overdue_count,
+                    previous_items=[dict(r) for r in prev_items] if prev_items else None,
+                )
+
                 if blocks:
-                    await slack_client.send_rich_message(
-                        channel=audit_channel,
-                        blocks=blocks,
-                        text="Atlas audit -- quick actions",
+                    try:
+                        await slack_client.send_dm_blocks_by_user_id(slack_id, blocks, text=text_fallback)
+                    except Exception as dm_err:
+                        log.warning("dm_send_failed", user=user_ghl_id, error=str(dm_err))
+                        try:
+                            await slack_client.send_dm_by_user_id(slack_id, text_fallback)
+                        except Exception:
+                            pass
+
+                new_count = 0
+                recurring_count = 0
+                for tf in user_findings:
+                    f = tf.finding
+                    finding_key = f"{f.opp_id}|{f.category}|{f.field_name or ''}"
+                    await acct_repo.upsert_item(
+                        finding_key=finding_key,
+                        opp_id=f.opp_id,
+                        opp_name=f.opp_name,
+                        category=f.category,
+                        field_name=f.field_name or "",
+                        severity=f.severity,
+                        description=f.description,
+                        suggested_action=f.suggested_action or "",
+                        assigned_to_ghl=user_ghl_id,
+                        assigned_to_slack=slack_id,
                     )
-                    log.info("audit_buttons_sent", channel=audit_channel)
-            except Exception as btn_err:
-                log.error("audit_buttons_error", error=str(btn_err))
+                    dm_summary["items_upserted"] += 1
+                    if tf.tag == "NEW":
+                        new_count += 1
+                    else:
+                        recurring_count += 1
+
+                dm_results.append({
+                    "user_ghl_id": user_ghl_id,
+                    "user_name": USER_NAMES.get(user_ghl_id, user_ghl_id),
+                    "items_sent": len(user_findings),
+                    "new_count": new_count,
+                    "recurring_count": recurring_count,
+                })
+
+            dm_summary["users_dm_sent"] = len(dm_results)
+
+            # Also upsert items for "Unassigned" findings (no DM but track them)
+            unassigned = by_user.get("Unassigned", [])
+            for tf in unassigned:
+                f = tf.finding
+                finding_key = f"{f.opp_id}|{f.category}|{f.field_name or ''}"
+                await acct_repo.upsert_item(
+                    finding_key=finding_key,
+                    opp_id=f.opp_id,
+                    opp_name=f.opp_name,
+                    category=f.category,
+                    field_name=f.field_name or "",
+                    severity=f.severity,
+                    description=f.description,
+                    suggested_action=f.suggested_action or "",
+                    assigned_to_ghl="Unassigned",
+                )
+                dm_summary["items_upserted"] += 1
+
+            await send_ceo_mirror(
+                slack_client, db,
+                dm_results=dm_results,
+                verification_results=verification_results,
+            )
+            log.info("dm_dispatch_complete", **dm_summary)
+        except Exception as dm_err:
+            log.error("dm_dispatch_error", error=str(dm_err), exc_info=True)
 
         # Build JSON response
         findings_json = [
@@ -121,6 +205,7 @@ async def trigger_audit(request: Request) -> JSONResponse:
                     "skipped_multi_match": backfill_result.skipped_multi_match,
                     "errors": len(backfill_result.errors),
                 } if backfill_result else None,
+                "dm_dispatch": dm_summary,
             },
         )
 

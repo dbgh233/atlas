@@ -269,12 +269,18 @@ async def lifespan(app: FastAPI):
 
                 # Group findings by user and send personal DMs
                 by_user = group_findings_by_user(tagged)
+                audit_log.info(
+                    "dm_dispatch_grouping",
+                    users=list(by_user.keys()),
+                    total_findings=len(tagged),
+                )
                 dm_results = []
 
                 for user_ghl_id, user_findings in by_user.items():
                     from app.modules.audit.rules import SLACK_USER_IDS
                     slack_id = SLACK_USER_IDS.get(user_ghl_id)
                     if not slack_id:
+                        audit_log.info("dm_dispatch_skip_no_slack", user_ghl_id=user_ghl_id, findings=len(user_findings))
                         continue
 
                     # Get previously resolved items for this user (yesterday's status)
