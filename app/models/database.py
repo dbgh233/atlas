@@ -112,7 +112,7 @@ class DLQRepository:
 
 
 class AuditRepository:
-    """CRUD helpers for the ``audit_snapshots`` table."""
+    """CRUD helpers for the ``audit_snapshots`` and ``audit_dismissed`` tables."""
 
     def __init__(self, db: aiosqlite.Connection) -> None:
         self.db = db
@@ -152,6 +152,59 @@ class AuditRepository:
             "SELECT * FROM audit_snapshots WHERE run_date = ?", (run_date,)
         )
         return _row_to_dict(await cursor.fetchone())
+
+    # --- Audit finding dismissals ---
+
+    async def dismiss_finding(
+        self,
+        opp_id: str,
+        category: str,
+        field_name: str,
+        dismissed_by: str,
+    ) -> None:
+        """Record that a user dismissed an audit finding via Slack.
+
+        Uses INSERT OR REPLACE so re-dismissing updates the timestamp
+        and the user who dismissed it.
+        """
+        await self.db.execute(
+            "INSERT OR REPLACE INTO audit_dismissed "
+            "(opp_id, category, field_name, dismissed_by, dismissed_at) "
+            "VALUES (?, ?, ?, ?, datetime('now'))",
+            (opp_id, category, field_name or "", dismissed_by),
+        )
+        await self.db.commit()
+
+    async def is_dismissed(
+        self, opp_id: str, category: str, field_name: str = ""
+    ) -> bool:
+        """Check whether a specific finding has been dismissed."""
+        cursor = await self.db.execute(
+            "SELECT COUNT(*) FROM audit_dismissed "
+            "WHERE opp_id = ? AND category = ? AND field_name = ?",
+            (opp_id, category, field_name or ""),
+        )
+        row = await cursor.fetchone()
+        return bool(row and row[0] > 0)
+
+    async def get_dismissed(self, limit: int = 100) -> list[dict]:
+        """Return recently dismissed findings."""
+        cursor = await self.db.execute(
+            "SELECT * FROM audit_dismissed ORDER BY dismissed_at DESC LIMIT ?",
+            (limit,),
+        )
+        return _rows_to_dicts(await cursor.fetchall())
+
+    async def undismiss_finding(
+        self, opp_id: str, category: str, field_name: str = ""
+    ) -> None:
+        """Remove a dismissal so the finding appears again in future digests."""
+        await self.db.execute(
+            "DELETE FROM audit_dismissed "
+            "WHERE opp_id = ? AND category = ? AND field_name = ?",
+            (opp_id, category, field_name or ""),
+        )
+        await self.db.commit()
 
 
 # ---------------------------------------------------------------------------

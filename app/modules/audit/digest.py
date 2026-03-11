@@ -9,6 +9,7 @@ Design principles:
 6. No arbitrary limits — show everything, but keep each item to one line
 7. Close Lost missing reason: list the deal names
 8. SLA deals: include recommended action
+9. Interactive buttons: Dismiss and Create Task on actionable findings
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ from typing import TYPE_CHECKING
 
 from app.modules.audit.engine import AuditFinding, AuditResult
 from app.modules.audit.rules import SLACK_USER_IDS, USER_NAMES
+from app.modules.hints import get_daily_hint
 
 if TYPE_CHECKING:
     from app.modules.audit.tracker import TaggedFinding
@@ -64,6 +66,7 @@ def format_digest(
         )
         if trend_summary:
             msg += f"\n{trend_summary}"
+        msg += f"\n\n{get_daily_hint('audit')}"
         return msg
 
     lines: list[str] = []
@@ -177,4 +180,123 @@ def format_digest(
     if trend_summary:
         lines.append(f"\n_{trend_summary}_")
 
+    # -----------------------------------------------------------------------
+    # Daily help hint
+    # -----------------------------------------------------------------------
+    lines.append(f"\n{get_daily_hint('audit')}")
+
     return "\n".join(lines)
+
+
+def format_digest_blocks(
+    result: AuditResult,
+    tagged: list[TaggedFinding] | None = None,
+    trend_summary: str | None = None,
+    previous_system_counts: dict[str, int] | None = None,
+) -> list[dict]:
+    """Build Slack Block Kit blocks for audit findings with interactive buttons.
+
+    Returns a list of Block Kit blocks. Each actionable finding gets a
+    Dismiss button and a Create Task button. Findings are identified by
+    their opp_id and category for callback routing.
+
+    The text digest is still sent separately — these blocks provide the
+    interactive action layer that follows the text summary.
+    """
+    blocks: list[dict] = []
+
+    # Collect actionable findings (human_gap + close_lost)
+    actionable = []
+    if tagged:
+        for tf in tagged:
+            f = tf.finding
+            if f.severity in ("human_gap", "info") or f.category == "close_lost_issue":
+                actionable.append(tf)
+    else:
+        for f in result.findings:
+            if f.severity in ("human_gap", "info") or f.category == "close_lost_issue":
+                actionable.append(f)
+
+    if not actionable:
+        return []
+
+    # Header
+    blocks.append({
+        "type": "section",
+        "text": {
+            "type": "mrkdwn",
+            "text": f":zap: *Quick Actions* -- {len(actionable)} findings you can act on",
+        },
+    })
+    blocks.append({"type": "divider"})
+
+    # Cap at 20 findings to stay under Slack's 50-block limit
+    # (each finding = 2 blocks: section + actions)
+    shown = actionable[:20]
+    for item in shown:
+        # Handle both TaggedFinding and raw AuditFinding
+        if hasattr(item, "finding"):
+            f = item.finding
+            tag = item.tag
+        else:
+            f = item
+            tag = ""
+
+        # Build finding description
+        stage_info = f" ({f.stage})" if f.stage else ""
+        action_text = f.suggested_action or f.description
+        tag_suffix = f"  `{tag}`" if tag else ""
+
+        # Create a stable action_id suffix from opp_id + category + field
+        finding_key = f"{f.opp_id}|{f.category}|{f.field_name or ''}"
+
+        blocks.append({
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f":warning: *{f.opp_name}*{stage_info}\n{action_text}{tag_suffix}",
+            },
+        })
+
+        # Action buttons: Dismiss + Create Task
+        actions_block = {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Dismiss", "emoji": True},
+                    "action_id": f"audit_dismiss",
+                    "value": finding_key,
+                    "style": "danger",
+                    "confirm": {
+                        "title": {"type": "plain_text", "text": "Dismiss finding?"},
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"Mark *{f.opp_name}* -- {action_text} as acknowledged?",
+                        },
+                        "confirm": {"type": "plain_text", "text": "Dismiss"},
+                        "deny": {"type": "plain_text", "text": "Cancel"},
+                    },
+                },
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Create Task", "emoji": True},
+                    "action_id": f"audit_create_task",
+                    "value": finding_key,
+                },
+            ],
+        }
+        blocks.append(actions_block)
+
+    if len(actionable) > 20:
+        blocks.append({
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": f"_Showing 20 of {len(actionable)} findings. Reply `@Atlas show all findings` for the full list._",
+                },
+            ],
+        })
+
+    return blocks

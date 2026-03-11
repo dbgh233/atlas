@@ -95,7 +95,10 @@ FIELD_LEAD_REFERRAL_PARTNER = "KlqPOKN5BTg9NzEHjjW8"
 # Additional reference fields
 FIELD_LEAD_CREATED_DATE = "jiL8nmKX3NnjTbSR59lp"
 
-# Fields set by Discovery Zap at opp creation
+# Fields set by Discovery Zap at opp creation.
+# NOTE: Website removed from this list — it is optional in Calendly and
+# Atlas handles auto-fill via the autofill module. Missing Website is NOT
+# a Zap failure; it simply means the prospect left it blank.
 ZAP_DISCOVERY_FIELDS: list[str] = [
     FIELD_APPOINTMENT_TYPE,
     FIELD_APPOINTMENT_STATUS,
@@ -104,7 +107,6 @@ ZAP_DISCOVERY_FIELDS: list[str] = [
     FIELD_MONTHLY_VOLUME,
     FIELD_HIGH_TICKET,
     FIELD_CALENDLY_EVENT_ID,
-    FIELD_WEBSITE,
 ]
 
 # ---------------------------------------------------------------------------

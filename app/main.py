@@ -33,6 +33,7 @@ from app.modules.conversation.agent import ConversationAgent
 from app.modules.health.checks import check_calendly_subscriptions, get_operational_status
 from app.modules.meetings.router import router as meetings_router
 from app.modules.precall.router import router as precall_router
+from app.modules.weekly.router import router as weekly_router
 from app.slack_app import set_agent, slack_handler
 
 
@@ -323,6 +324,43 @@ async def lifespan(app: FastAPI):
         id="weekly_rollup",
     )
 
+    async def _weekly_show_rate_report():
+        """Friday weekly show rate report (Hormozi-style)."""
+        from app.modules.weekly.report import run_weekly_report
+
+        sr_log = structlog.get_logger()
+        sr_log.info('weekly_show_rate_start')
+        try:
+            result = await run_weekly_report(
+                calendly_client=app.state.calendly_client,
+                ghl_client=app.state.ghl_client,
+                slack_client=app.state.slack_client,
+                db=app.state.db,
+            )
+            sr_log.info(
+                'weekly_show_rate_complete',
+                show_rate=result.get('show_rate', 0),
+                meetings=result.get('meetings_occurred', 0),
+                no_shows=result.get('no_shows', 0),
+            )
+        except Exception as e:
+            sr_log.error('weekly_show_rate_error', error=str(e), exc_info=True)
+            try:
+                await app.state.slack_client.send_message(
+                    ':x: Atlas: Weekly show rate report FAILED -- ' + str(e)
+                )
+            except Exception:
+                pass
+
+    app.state.scheduler.add_job(
+        _weekly_show_rate_report,
+        'cron',
+        hour=16,
+        minute=30,
+        day_of_week='fri',
+        id='weekly_show_rate_report',
+    )
+
     async def _auto_dismiss_check():
         """Daily auto-dismiss check for fulfilled commitments."""
         from app.modules.meetings.processor import auto_dismiss_fulfilled
@@ -418,7 +456,7 @@ async def lifespan(app: FastAPI):
         log.info("otter_client_skipped", reason="no_api_key")
 
     app.state.scheduler.start()
-    jobs = ["daily_audit_8am_est", "subscription_check_6h", "weekly_rollup_fri_4pm", "daily_auto_dismiss_730am", "precall_briefs_730am"]
+    jobs = ["daily_audit_8am_est", "subscription_check_6h", "weekly_rollup_fri_4pm", "daily_auto_dismiss_730am", "precall_briefs_730am", "weekly_show_rate_fri_430pm"]
     if settings.otter_api_key:
         jobs.append("otter_sync_2h")
     log.info("scheduler_started", jobs=jobs)
@@ -575,3 +613,4 @@ app.include_router(dlq_router, prefix="/admin")
 app.include_router(audit_router, prefix="/audit")
 app.include_router(meetings_router, prefix="/meetings")
 app.include_router(precall_router, prefix="/precall")
+app.include_router(weekly_router, prefix="/weekly")

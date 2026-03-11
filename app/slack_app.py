@@ -2,12 +2,18 @@
 
 Wires @mentions and DMs to the ConversationAgent, and handles
 the /atlas slash command for system status.
+
+Also handles interactive button callbacks for:
+- Commitment tracking (meeting follow-ups)
+- Audit finding actions (dismiss, create GHL task)
 """
 
 from __future__ import annotations
 
+import json
 import os
 import re
+from datetime import UTC, datetime
 
 import structlog
 from slack_bolt.adapter.fastapi.async_handler import AsyncSlackRequestHandler
@@ -106,6 +112,11 @@ async def handle_atlas_command(ack, command, say) -> None:
         await say(response)
 
 
+# ---------------------------------------------------------------------------
+# Commitment tracking buttons (meeting follow-ups)
+# ---------------------------------------------------------------------------
+
+
 @slack_app.action(re.compile(r"^commitment_action_\d+$"))
 async def handle_commitment_action(ack, action, say) -> None:
     """Handle interactive button clicks on commitment messages."""
@@ -186,6 +197,184 @@ async def handle_commitment_action(ack, action, say) -> None:
         except Exception as e:
             log.error("commitment_create_task_error", error=str(e))
             await say(f":x: Failed to create task: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Audit finding buttons (dismiss / create GHL task)
+# ---------------------------------------------------------------------------
+
+
+@slack_app.action("audit_dismiss")
+async def handle_audit_dismiss(ack, action, body, client) -> None:
+    """Dismiss an audit finding — marks it as acknowledged in the DB.
+
+    The button value is 'opp_id|category|field_name'.
+    Updates the original message to show the finding was dismissed.
+    """
+    await ack()
+
+    value = action.get("value", "")
+    user_id = body.get("user", {}).get("id", "unknown")
+    log.info("audit_dismiss", value=value, user=user_id)
+
+    if not value:
+        return
+
+    parts = value.split("|", 2)
+    if len(parts) < 2:
+        return
+
+    opp_id = parts[0]
+    category = parts[1]
+    field_name = parts[2] if len(parts) > 2 else ""
+
+    if _agent is None:
+        return
+
+    # Record the dismissal in the audit_dismissed table
+    from app.models.database import AuditRepository
+    repo = AuditRepository(_agent.db)
+    await repo.dismiss_finding(
+        opp_id=opp_id,
+        category=category,
+        field_name=field_name,
+        dismissed_by=user_id,
+    )
+
+    # Update the original message to show it was dismissed
+    channel = body.get("channel", {}).get("id")
+    message_ts = body.get("message", {}).get("ts")
+
+    if channel and message_ts:
+        original_blocks = body.get("message", {}).get("blocks", [])
+        # Find and update the action block that contains this button
+        updated_blocks = _replace_action_with_status(
+            original_blocks, value, f":grey_question: Dismissed by <@{user_id}>"
+        )
+        try:
+            await client.chat_update(
+                channel=channel,
+                ts=message_ts,
+                blocks=updated_blocks,
+                text="Audit finding dismissed",
+            )
+        except Exception as e:
+            log.error("audit_dismiss_update_error", error=str(e))
+
+
+@slack_app.action("audit_create_task")
+async def handle_audit_create_task(ack, action, body, say, client) -> None:
+    """Create a GHL task for an audit finding.
+
+    The button value is 'opp_id|category|field_name'.
+    Looks up the opportunity, finds the contact, and creates a task.
+    """
+    await ack()
+
+    value = action.get("value", "")
+    user_id = body.get("user", {}).get("id", "unknown")
+    log.info("audit_create_task", value=value, user=user_id)
+
+    if not value:
+        return
+
+    parts = value.split("|", 2)
+    if len(parts) < 2:
+        return
+
+    opp_id = parts[0]
+    category = parts[1]
+    field_name = parts[2] if len(parts) > 2 else ""
+
+    if _agent is None:
+        return
+
+    try:
+        # Look up the opportunity to get contact and assignee info
+        opp = await _agent.ghl_client.get_opportunity(opp_id)
+        opp_name = opp.get("name", "Unknown")
+        contact_id = opp.get("contactId") or opp.get("contact", {}).get("id")
+        assigned_to = opp.get("assignedTo")
+
+        if not contact_id:
+            await say(f":warning: Cannot create task for *{opp_name}* -- no contact linked to opportunity.")
+            return
+
+        # Build task title from the finding context
+        if field_name:
+            task_title = f"[Atlas Audit] {field_name} -- {opp_name}"
+        else:
+            task_title = f"[Atlas Audit] {category} -- {opp_name}"
+
+        task_description = (
+            f"Created from Atlas audit finding.\n"
+            f"Category: {category}\n"
+            f"Field: {field_name or 'N/A'}\n"
+            f"Created by: <@{user_id}> via Slack\n"
+            f"Date: {datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}"
+        )
+
+        await _agent.ghl_client.create_contact_task(
+            contact_id=contact_id,
+            title=task_title[:100],
+            description=task_description,
+            assigned_to=assigned_to,
+        )
+
+        log.info("audit_task_created", opp_id=opp_id, opp_name=opp_name)
+
+        # Update the original message to show the task was created
+        channel = body.get("channel", {}).get("id")
+        message_ts = body.get("message", {}).get("ts")
+
+        if channel and message_ts:
+            original_blocks = body.get("message", {}).get("blocks", [])
+            updated_blocks = _replace_action_with_status(
+                original_blocks, value,
+                f":white_check_mark: GHL task created by <@{user_id}>"
+            )
+            try:
+                await client.chat_update(
+                    channel=channel,
+                    ts=message_ts,
+                    blocks=updated_blocks,
+                    text="GHL task created from audit finding",
+                )
+            except Exception as e:
+                log.error("audit_task_update_error", error=str(e))
+
+    except Exception as e:
+        log.error("audit_create_task_error", error=str(e), opp_id=opp_id)
+        await say(f":x: Failed to create task for opp {opp_id}: {e}")
+
+
+def _replace_action_with_status(
+    blocks: list[dict], action_value: str, status_text: str
+) -> list[dict]:
+    """Replace an actions block containing the given value with a context status.
+
+    When a user clicks Dismiss or Create Task, we replace the button row
+    with a status line showing what happened. This prevents double-clicks.
+    """
+    updated = []
+    for block in blocks:
+        if block.get("type") == "actions":
+            # Check if any element in this actions block has the matching value
+            elements = block.get("elements", [])
+            has_match = any(
+                el.get("value") == action_value for el in elements
+            )
+            if has_match:
+                # Replace the actions block with a context block showing status
+                updated.append({
+                    "type": "context",
+                    "elements": [
+                        {"type": "mrkdwn", "text": status_text},
+                    ],
+                })
+                continue
+        updated.append(block)
+    return updated
 
 
 slack_handler = AsyncSlackRequestHandler(slack_app)

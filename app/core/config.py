@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     slack_bot_token: str
     slack_signing_secret: str = ""  # Required for Slack Events API (Phase 2+)
     slack_webhook_url: str = ""
+    slack_audit_channel: str = ""  # Channel ID for audit digests with interactive buttons
 
     # --- Anthropic (required) ---
     anthropic_api_key: str

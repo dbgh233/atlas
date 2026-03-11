@@ -155,6 +155,22 @@ class GHLClient:
         return data.get("contact", data)
 
     @retry(**_retry_config)
+    async def update_contact(self, contact_id: str, data: dict) -> dict:
+        """Update a contact by ID.
+
+        Accepts standard contact fields (name, email, phone, website,
+        companyName, city, state, country, etc.) and customFields.
+        """
+        log.debug("ghl_update_contact", contact_id=contact_id, fields=list(data.keys()))
+        resp = await self.http_client.put(
+            f"{self.base_url}/contacts/{contact_id}",
+            headers=self._headers,
+            json=data,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    @retry(**_retry_config)
     async def get_contact_tasks(self, contact_id: str) -> list[dict]:
         """Fetch tasks for a contact."""
         log.debug("ghl_get_contact_tasks", contact_id=contact_id)

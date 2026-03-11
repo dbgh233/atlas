@@ -18,11 +18,15 @@ import structlog
 
 from app.core.clients.claude import ClaudeClient
 from app.core.clients.ghl import GHLClient
-from app.modules.audit.rules import USER_NAMES
+from app.modules.audit.rules import STAGE_NAMES, USER_NAMES
 from app.modules.meetings.repository import (
     CommitmentRepository,
     MeetingRepository,
     PatternRepository,
+)
+from app.modules.meetings.resolver import (
+    resolve_commitment_names,
+    format_resolved_digest,
 )
 
 log = structlog.get_logger()
@@ -98,6 +102,7 @@ class ProcessedMeeting:
     merchants_found: list[str] = field(default_factory=list)
     merchants_matched_to_opps: int = 0
     undiscussed_concerns: list[str] = field(default_factory=list)
+    resolved_digest: str = ""  # Slack-ready digest with resolved merchant names
     errors: list[str] = field(default_factory=list)
 
 
@@ -237,9 +242,9 @@ async def process_transcript(
     1. Classify meeting type
     2. Store meeting record
     3. Extract commitments via Claude
-    4. Match merchants to GHL opportunities
-    5. Store commitments with opp links
-    6. Detect patterns
+    4. Resolve commitment names against GHL pipeline (fuzzy matching)
+    5. Store commitments with resolved opp links
+    6. Generate resolved digest for Slack
     """
     meeting_type = classify_meeting_type(title)
     meeting_repo = MeetingRepository(db)
@@ -310,19 +315,30 @@ async def process_transcript(
     result.merchants_found = merchants_discussed
     result.undiscussed_concerns = undiscussed
 
-    # Match merchants to GHL opportunities
+    # Fetch all open opportunities once (shared between merchant matching and resolver)
     all_opps = None
     try:
         all_opps = await ghl_client.search_opportunities()
     except Exception:
         pass
 
+    # Match merchants_discussed to GHL opportunities (for the meeting record)
     merchant_opp_map = await _match_merchants_to_opps(
         ghl_client, merchants_discussed, all_opps
     )
     result.merchants_matched_to_opps = sum(
         1 for v in merchant_opp_map.values() if v is not None
     )
+
+    # --- Resolve commitment names via fuzzy matching ---
+    # This is the key enhancement: cross-reference vague commitment text
+    # with actual GHL pipeline data to get real merchant names, stages, volumes
+    resolved_commitments = await resolve_commitment_names(
+        commitments_data, ghl_client, all_opps=all_opps,
+    )
+
+    # Generate the resolved digest for Slack (with actual merchant names)
+    result.resolved_digest = format_resolved_digest(resolved_commitments)
 
     # Store meeting
     meeting_id = await meeting_repo.upsert_meeting(
@@ -340,13 +356,23 @@ async def process_transcript(
     )
     result.meeting_id = meeting_id
 
-    # Store commitments
+    # Store commitments using resolved data
     meeting_date = _parse_meeting_date(start_time)
-    for c in commitments_data:
+    for i, c in enumerate(commitments_data):
         assignee = c.get("assignee", "Unknown")
         ghl_id = _match_assignee_to_ghl(assignee)
-        merchant = c.get("merchant_name")
-        opp_id = merchant_opp_map.get(merchant) if merchant else None
+
+        # Use resolved data if available, fall back to basic matching
+        resolved = resolved_commitments[i] if i < len(resolved_commitments) else None
+
+        if resolved and resolved.opportunity_id:
+            # Resolver found a match — use resolved merchant name and opp ID
+            merchant = resolved.resolved_merchant_name or c.get("merchant_name")
+            opp_id = resolved.opportunity_id
+        else:
+            # Fall back to basic merchant_opp_map matching
+            merchant = c.get("merchant_name")
+            opp_id = merchant_opp_map.get(merchant) if merchant else None
 
         # Normalize relative deadlines to actual dates
         raw_deadline = c.get("deadline")
@@ -356,13 +382,18 @@ async def process_transcript(
             meeting_id=meeting_id,
             assignee_name=assignee,
             assignee_ghl_id=ghl_id,
-            action=c.get("action", ""),
+            action=resolved.display_action if resolved else c.get("action", ""),
             merchant_name=merchant,
             opportunity_id=opp_id,
             deadline=normalized_deadline,
             source_quote=c.get("source_quote"),
         )
         result.commitments_extracted += 1
+
+    # Count how many commitments got resolved to actual opps
+    resolved_count = sum(
+        1 for rc in resolved_commitments if rc.opportunity_id
+    )
 
     log.info(
         "meeting_processed",
@@ -371,6 +402,7 @@ async def process_transcript(
         commitments=result.commitments_extracted,
         merchants=len(merchants_discussed),
         matched_opps=result.merchants_matched_to_opps,
+        resolved_commitments=resolved_count,
     )
 
     return result
@@ -630,11 +662,13 @@ def build_commitment_blocks(
             cid = c.get("id", 0)
             action = c.get("action", "?")
             meeting = c.get("meeting_title", "")
+            # Show stage context if opportunity is linked
+            stage_ctx = _format_opp_context(c)
             blocks.append({
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f":red_circle: {action}\n_Overdue, from {meeting}_",
+                    "text": f":red_circle: {action}{stage_ctx}\n_Overdue, from {meeting}_",
                 },
                 "accessory": {
                     "type": "overflow",
@@ -652,11 +686,13 @@ def build_commitment_blocks(
             action = c.get("action", "?")
             deadline = c.get("deadline")
             deadline_str = f"\n_Due: {deadline}_" if deadline else ""
+            # Show stage context if opportunity is linked
+            stage_ctx = _format_opp_context(c)
             blocks.append({
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f":white_circle: {action}{deadline_str}",
+                    "text": f":white_circle: {action}{stage_ctx}{deadline_str}",
                 },
                 "accessory": {
                     "type": "overflow",
@@ -672,11 +708,31 @@ def build_commitment_blocks(
     return blocks
 
 
+def _format_opp_context(commitment: dict) -> str:
+    """Format opportunity context (stage name) for display in commitment blocks.
+
+    If the commitment has a linked opportunity_id, look up the stage name
+    from the stored data.
+    """
+    opp_id = commitment.get("opportunity_id")
+    if not opp_id:
+        return ""
+    # If we have stage info stored alongside the commitment, show it
+    # This data comes from the resolver enrichment stored at processing time
+    merchant = commitment.get("merchant_name", "")
+    if merchant:
+        return f" -- _{merchant}_"
+    return ""
+
+
 def format_commitment_digest(
     commitments: list[dict],
     missed: list[dict] | None = None,
 ) -> str:
-    """Format commitment tracking for Slack digest — grouped by user."""
+    """Format commitment tracking for Slack digest — grouped by user.
+
+    Shows enriched data when available: merchant names with stage context.
+    """
     if not commitments and not missed:
         return ""
 
@@ -717,18 +773,35 @@ def format_commitment_digest(
 
     for key, data in sorted(all_items.items(), key=lambda x: x[1]["mention"]):
         mention = data["mention"]
-        user_total = len(data["open"]) + len(data["missed"])
         lines.append(f"\n{mention}:")
 
         for c in data["missed"]:
             action = c.get("action", "?")
             meeting = c.get("meeting_title", "")
-            lines.append(f"  :red_circle: {action} (overdue, from {meeting})")
+            merchant_ctx = _format_merchant_context(c)
+            lines.append(f"  :red_circle: {action}{merchant_ctx} (overdue, from {meeting})")
 
         for c in data["open"]:
             action = c.get("action", "?")
             deadline = c.get("deadline")
             deadline_str = f" -- {deadline}" if deadline else ""
-            lines.append(f"  :white_circle: {action}{deadline_str}")
+            merchant_ctx = _format_merchant_context(c)
+            lines.append(f"  :white_circle: {action}{merchant_ctx}{deadline_str}")
 
     return "\n".join(lines)
+
+
+def _format_merchant_context(commitment: dict) -> str:
+    """Build merchant context string for digest display.
+
+    If the commitment has a linked opportunity, shows the merchant name
+    in context. The action text itself should already contain the resolved
+    merchant name (set during process_transcript), but this adds stage/link
+    context when we have it.
+    """
+    opp_id = commitment.get("opportunity_id")
+    if not opp_id:
+        return ""
+    # The merchant_name field is already the resolved name (set in process_transcript)
+    # Just indicate we have a GHL link
+    return " :link:"

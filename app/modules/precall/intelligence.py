@@ -31,6 +31,8 @@ from app.modules.precall.rep_profiles import (
     get_rep_profile,
 )
 
+from app.modules.hints import get_daily_hint
+
 log = structlog.get_logger()
 
 # Calendly event type names that indicate a sales call
@@ -947,6 +949,10 @@ def _build_dm_message(
     if sources:
         dm_parts.append("")
         dm_parts.append(f"_Sources: {', '.join(sources)}_")
+
+    # Daily help hint -- teaches the team Atlas capabilities
+    dm_parts.append("")
+    dm_parts.append(get_daily_hint("precall"))
 
     return "\n".join(dm_parts)
 
