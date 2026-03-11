@@ -271,19 +271,30 @@ REP PROFILE:
 
 """ + _SLACK_FORMAT_RULES + """
 
+CRITICAL RULES:
+1. CITE YOUR SOURCES: For any specific claim (tagline, slogan, product detail, company mission),
+   include where it came from in parentheses — e.g., "(from their website)", "(Calendly Q&A)",
+   "(LinkedIn)", "(Ocean.io)". The rep needs to know what's verified vs inferred.
+2. DO NOT warn about industry risks that AHG already specializes in. AHG is a high-risk payment
+   processor — they know CBD, hemp, kratom, nutra, peptides, telehealth, and gaming are regulated.
+   Never flag these as "heads up" items. Only flag truly unusual risks (e.g., recent FDA action
+   against THIS specific company, pending lawsuit, negative press).
+3. MAKE RAPPORT HOOKS SPECIFIC AND USABLE: Each hook must be something the rep can actually say
+   in conversation. Bad: "Temple City / SoCal connection". Good: "They're based in Temple City, CA
+   — you could mention your time in South Florida and ask how the SoCal wellness scene compares."
+
 Generate a brief with these sections:
 
 *Who They Are*
 2-3 sentences. Be specific about what their company does, their role, and their likely
-decision-making authority. If data is limited, say what we know and flag gaps.
+decision-making authority. Cite source for key facts. If data is limited, say what we know and flag gaps.
 
 *Rapport Hooks*
-3-5 bullet points for the first 5-10 minutes. Prioritize:
-- Specific overlaps between the rep's background and the prospect's (shared schools, cities, interests)
-- Industry-specific talking points that show expertise
-- Location or regional connections
-- Any mutual connections or shared groups
-Only include hooks grounded in actual data. If limited, suggest 2-3 natural industry openers.
+3-5 bullet points for the first 5-10 minutes. Each hook must be:
+- Specific enough to use as a conversation opener (write it like a talking point)
+- Grounded in actual data with source cited
+- Connected to a real overlap between the rep and prospect
+If limited data, suggest 2-3 natural industry openers that reference something specific about the prospect.
 
 *Their Likely Pain Points*
 2-3 bullet points. Be specific to their industry and company size — generic "payment processing
@@ -294,8 +305,9 @@ is hard" is not useful. Connect pain points to what we actually know about them.
 their current situation, and concrete differentiators (not generic value props).
 
 *Heads Up*
-Only include if there's something genuinely important to flag — regulatory risks for their
-product type, recent negative press, compliance considerations, or contradictory data.
+Only include if there's something genuinely important and NON-OBVIOUS to flag — recent negative
+press about THIS company, pending regulatory action against THEM specifically, contradictory data
+in our sources, or red flags about legitimacy. DO NOT include general industry risk warnings.
 Skip this section entirely if there's nothing non-obvious to flag.
 
 Keep it conversational and practical — like a trusted colleague giving a quick heads-up
@@ -319,11 +331,19 @@ CS REP PROFILE:
 
 """ + _SLACK_FORMAT_RULES + """
 
+CRITICAL RULES:
+1. CITE YOUR SOURCES: For any specific claim, include where it came from in parentheses —
+   e.g., "(from GHL CRM)", "(Calendly Q&A)", "(Website)", "(Ocean.io)".
+2. DO NOT warn about industry risks for AHG's core verticals (CBD, hemp, kratom, nutra,
+   peptides, telehealth, gaming). Only flag issues specific to THIS client.
+3. MAKE RAPPORT HOOKS SPECIFIC AND USABLE: Each hook must be a concrete talking point
+   the CS rep can use, not a vague category label.
+
 Generate a brief with these sections:
 
 *Account Snapshot*
 2-3 sentences. Company name, what they do, how long they've been with AHG, current processing
-status. Include any key numbers (processing volume, transaction counts) if available.
+status. Include any key numbers (processing volume, transaction counts) if available. Cite sources.
 
 *Meeting Context*
 What this meeting is likely about based on the event type, any Q&A responses, and recent
@@ -339,11 +359,10 @@ commitments. If none found, note "No open items found in available data."
 - Processing stability (active, holds, reserves)
 - Recent support interactions or escalations
 - Integration status (gateway setup, POS, etc.)
-- Any compliance or risk flags
 
 *Rapport Hooks*
-2-3 bullet points for personal connection. Prioritize specific overlaps between the CS rep's
-background and the client's. Only include hooks grounded in actual data.
+2-3 bullet points for personal connection. Each must be specific enough to use as a conversation
+opener — write it like a talking point, not a category. Cite the data source.
 
 *Preparation Notes*
 1-2 bullet points on what to have ready for this call (specific integrations, documentation,
@@ -369,12 +388,19 @@ ONBOARDING REP PROFILE:
 
 """ + _SLACK_FORMAT_RULES + """
 
+CRITICAL RULES:
+1. CITE YOUR SOURCES: For any specific claim, include where it came from in parentheses —
+   e.g., "(from GHL CRM)", "(Calendly Q&A)", "(Website)".
+2. DO NOT warn about industry risks for AHG's core verticals. AHG specializes in high-risk.
+   Only flag issues specific to THIS merchant (e.g., specific compliance gaps, unusual product types).
+3. Focus on what Hannah needs to DO, not background she already knows about the industry.
+
 Generate a brief with these sections:
 
 *Merchant Overview*
 2-3 sentences. Company name, what they sell, industry vertical, estimated monthly volume,
-high-ticket amount if known. Flag anything that affects onboarding (high-risk category,
-multi-location, special integration needs).
+high-ticket amount if known. Cite sources. Flag anything that affects onboarding (multi-location,
+special integration needs, unusual product types outside AHG's standard verticals).
 
 *Onboarding Context*
 What stage they're at, how they got here (referral source, sales rep who closed),
@@ -622,9 +648,15 @@ async def run_precall_dry_run(
     result["calls_found"] = len(calls)
 
     for call in calls:
-        host_email = call.get("host_email", "")
-        rep_profile = get_rep_profile(host_email)
         invitees = call.get("invitees", [])
+
+        # Collect all hosts for this event (same pattern as _process_single_call)
+        hosts = call.get("hosts", [])
+        if not hosts:
+            host_email = call.get("host_email", "")
+            host_name = call.get("host_name", "")
+            if host_email:
+                hosts = [{"name": host_name, "email": host_email}]
 
         for invitee in invitees:
             prospect_name = invitee.get("name", "")
@@ -638,39 +670,48 @@ async def run_precall_dry_run(
                     google_search_client, ocean_client,
                 )
                 confidence_label, confidence_pct = _compute_confidence(prospect_data)
-                brief = await generate_precall_brief(claude_client, prospect_data, rep_profile)
                 time_str = _format_time_est(call.get("start_time", ""))
 
-                # Build the same message that would be DM'd
-                dm_text = _build_dm_message(
-                    prospect_name or prospect_email,
-                    call,
-                    time_str,
-                    confidence_label,
-                    confidence_pct,
-                    prospect_data,
-                    brief,
-                )
+                # Generate a brief for EACH host with their role-appropriate template
+                for host in hosts:
+                    host_email = host.get("email", "")
+                    host_name = host.get("name", "")
+                    rep_profile = get_rep_profile(host_email)
+                    brief_type = _get_brief_type(rep_profile)
 
-                result["briefs"].append({
-                    "rep": call.get("host_name", "Unknown"),
-                    "rep_slack_id": rep_profile.get("slack_user_id") if rep_profile else None,
-                    "prospect": prospect_name,
-                    "prospect_email": prospect_email,
-                    "call_time": time_str,
-                    "confidence": f"{confidence_label} ({confidence_pct}%)",
-                    "slack_message": dm_text,
-                    "data_sources": {
-                        "calendly_qa": bool(prospect_data.get("calendly_answers")),
-                        "website": bool(prospect_data.get("website_info")),
-                        "ghl_crm": bool(prospect_data.get("ghl_data")),
-                        "google_search": bool(prospect_data.get("google_search_info")),
-                        "ocean_company": bool(prospect_data.get("ocean_company_info")),
-                        "ocean_person": bool(prospect_data.get("ocean_person_info")),
-                        "linkedin_url": prospect_data.get("linkedin_url"),
-                        "company_domain": prospect_data.get("company_domain"),
-                    },
-                })
+                    brief = await generate_precall_brief(claude_client, prospect_data, rep_profile)
+
+                    dm_text = _build_dm_message(
+                        prospect_name or prospect_email,
+                        call,
+                        time_str,
+                        confidence_label,
+                        confidence_pct,
+                        prospect_data,
+                        brief,
+                    )
+
+                    result["briefs"].append({
+                        "rep": host_name or "Unknown",
+                        "rep_email": host_email,
+                        "rep_slack_id": rep_profile.get("slack_user_id") if rep_profile else None,
+                        "brief_type": brief_type,
+                        "prospect": prospect_name,
+                        "prospect_email": prospect_email,
+                        "call_time": time_str,
+                        "confidence": f"{confidence_label} ({confidence_pct}%)",
+                        "slack_message": dm_text,
+                        "data_sources": {
+                            "calendly_qa": bool(prospect_data.get("calendly_answers")),
+                            "website": bool(prospect_data.get("website_info")),
+                            "ghl_crm": bool(prospect_data.get("ghl_data")),
+                            "google_search": bool(prospect_data.get("google_search_info")),
+                            "ocean_company": bool(prospect_data.get("ocean_company_info")),
+                            "ocean_person": bool(prospect_data.get("ocean_person_info")),
+                            "linkedin_url": prospect_data.get("linkedin_url"),
+                            "company_domain": prospect_data.get("company_domain"),
+                        },
+                    })
             except Exception as e:
                 result["errors"].append(f"Failed: {prospect_name} — {e}")
 

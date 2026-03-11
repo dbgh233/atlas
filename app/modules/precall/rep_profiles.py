@@ -120,20 +120,51 @@ REP_PROFILES: dict[str, dict] = {
         "calendly_email": "hness@ahgpay.com",
         "linkedin_url": "",
         "role": "Onboarding Specialist",
-        "location": "",
+        "location": "South Florida (in-office)",
         "master_prompt": (
-            "Hannah Ness is the Onboarding Specialist at Alternative Horizons Group. She manages "
-            "merchant onboarding from signature through first live transaction, ensuring a smooth "
-            "handoff from sales. She coordinates MPA submission, underwriting documentation, "
-            "gateway setup, POS configuration, and compliance verification. Her focus is on "
-            "reducing onboarding timelines, ensuring all documentation is complete and accurate, "
-            "and providing a white-glove experience that reinforces the promises made during sales. "
-            "She works closely with Henry (Sales) and Ism (CS) to ensure seamless transitions."
+            "Hannah Ness is the Merchant Onboarding Specialist at Alternative Horizons Group. "
+            "She was brought in to take over merchant onboarding from Henry so he can focus on sales. "
+            "Her job: once Henry gets verbal commitment, Hannah takes reign — collects all documents, "
+            "submits complete application packages to underwriting (not piecemeal), gets merchants "
+            "approved, then hands off to Ism for customer success. The ideal model is BamFam — "
+            "book a meeting from a meeting. Henry books the onboarding call for Hannah, she collects "
+            "docs and gets signatures on-call, then books a CS handoff meeting for Ism. "
+            "She came in with Nutra merchant processing experience where applications were always "
+            "submitted in full and double-checked — errors were not accepted. She's bringing that "
+            "same devotion to completeness to AHG but in a more streamlined, AI-assisted way. "
+            "She works closely with Henry in-office and is building SOPs and flowcharts for the "
+            "onboarding process from scratch. Key tools: GHL (CRM), IRIS (underwriting portal), "
+            "PandaDoc (merchant applications), Notion (knowledge base). "
+            "Communication style: professional but approachable, uses humor to keep merchants "
+            "engaged through the documentation process. Has an escalating follow-up approach — "
+            "starts with friendly emails, then light humor (ghosting memes), then hands back to "
+            "Henry if merchant goes unresponsive. Comfortable with AI writing routine emails but "
+            "reviews anything requiring human context before it sends. "
+            "Prefers notifications kept to a minimum — relevant, quick, and useful. Gets overstimulated "
+            "by too many automated messages. Most productive for detail-oriented compliance work "
+            "in the morning, better at merchant communication in the afternoon. "
+            "Underwriter relationships: Tabitha (Shield Engage), Virge and Vicki (West Town), "
+            "building Argyle relationships. Key priority is merchant satisfaction above all else."
         ),
-        "personal_context": "",
-        "rapport_interests": [],
-        # Added: 2026-03-11
-        # TODO: Update with personal context and rapport interests
+        "personal_context": (
+            "Creative person who likes to use 'color' in everything — both literally (aesthetic "
+            "flowcharts, color-coded docs) and figuratively (quirky related facts in conversation, "
+            "humor, personal touches). Self-described artist. Finds silver linings in tough situations. "
+            "Quick learner with a wide knowledge base from working across many industries. "
+            "Low risk tolerance in business — gets anxiety about incomplete applications or "
+            "representing the company improperly. Prefers to see entire task strings carried out "
+            "before moving on. Building habit of using AI tools — understands the speed benefit "
+            "but adjusting from manual spreadsheet/transcript habits. Values doing respectable "
+            "work — meeting expectations plus going above and beyond with unexpected extras."
+        ),
+        "rapport_interests": [
+            "creative projects and art",
+            "humor and finding silver linings",
+            "process optimization and flowcharting",
+            "merchant processing (Nutra background)",
+            "organization and documentation",
+        ],
+        # Added: 2026-03-11 from actual master prompt PDF
     },
 }
 
