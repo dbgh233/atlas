@@ -43,6 +43,7 @@ CALL_KEYWORDS = [
     "sales",
     "meeting",
     "call",
+    "onboarding",
 ]
 
 # Event type names to skip (internal meetings, not prospect calls)
@@ -145,13 +146,22 @@ def _names_match(prospect_name: str, linkedin_name: str) -> bool:
     return True
 
 
-def _is_sales_rep(rep_profile: dict | None) -> bool:
-    """Determine if a rep is in a sales role (vs customer success)."""
+def _get_brief_type(rep_profile: dict | None) -> str:
+    """Determine brief type based on rep role: 'sales', 'onboarding', or 'cs'."""
     if not rep_profile:
-        return True  # Default to sales brief
+        return "sales"
     role = (rep_profile.get("role") or "").lower()
-    cs_keywords = ["customer success", "account manager", "implementation", "support", "onboarding"]
-    return not any(kw in role for kw in cs_keywords)
+    if "onboarding" in role:
+        return "onboarding"
+    cs_keywords = ["customer success", "account manager", "implementation", "support"]
+    if any(kw in role for kw in cs_keywords):
+        return "cs"
+    return "sales"
+
+
+def _is_sales_rep(rep_profile: dict | None) -> bool:
+    """Determine if a rep is in a sales role (vs customer success/onboarding)."""
+    return _get_brief_type(rep_profile) == "sales"
 
 
 async def _find_ghl_contact(
@@ -342,6 +352,52 @@ account details to pull up).
 Keep it concise and action-oriented. Focus on what the CS rep needs to DO, not just know.
 Keep the total brief under 350 words."""
 
+# Onboarding brief: timeline, documentation status, integration needs, handoff context
+ONBOARDING_BRIEF_PROMPT = """You are an onboarding intelligence analyst for AHG Payments.
+
+AHG COMPANY CONTEXT:
+{ahg_context}
+
+An Onboarding Specialist has an upcoming onboarding call with a new merchant. Generate a concise,
+actionable pre-call brief focused on getting this merchant live quickly and smoothly.
+
+MERCHANT DATA:
+{prospect_data}
+
+ONBOARDING REP PROFILE:
+{rep_info}
+
+""" + _SLACK_FORMAT_RULES + """
+
+Generate a brief with these sections:
+
+*Merchant Overview*
+2-3 sentences. Company name, what they sell, industry vertical, estimated monthly volume,
+high-ticket amount if known. Flag anything that affects onboarding (high-risk category,
+multi-location, special integration needs).
+
+*Onboarding Context*
+What stage they're at, how they got here (referral source, sales rep who closed),
+any commitments made during discovery that affect onboarding timeline or expectations.
+Flag if they're currently processing elsewhere (migration vs new setup).
+
+*Documentation Checklist*
+Bullet what's likely needed based on their business type:
+- Standard MPA items (ID, voided check, processing statements if migrating)
+- Industry-specific docs (hemp license, COA requirements, supplement certifications)
+- Any items flagged in CRM or Q&A responses
+
+*Integration Needs*
+What gateway/POS/platform setup will likely be needed based on their business model
+(e-commerce, retail, both). Flag any known technical requirements.
+
+*Key Numbers*
+Bullet the critical numbers: monthly volume, high ticket, average ticket if known,
+current processor if migrating. These drive underwriting decisions.
+
+Keep it practical -- focus on what needs to happen to get this merchant processing.
+Keep the total brief under 300 words."""
+
 
 async def generate_precall_brief(
     claude_client: ClaudeClient,
@@ -401,8 +457,13 @@ async def generate_precall_brief(
     )
 
     # Pick prompt based on rep role
-    is_sales = _is_sales_rep(rep_profile)
-    template = SALES_BRIEF_PROMPT if is_sales else CS_BRIEF_PROMPT
+    brief_type = _get_brief_type(rep_profile)
+    if brief_type == "onboarding":
+        template = ONBOARDING_BRIEF_PROMPT
+    elif brief_type == "cs":
+        template = CS_BRIEF_PROMPT
+    else:
+        template = SALES_BRIEF_PROMPT
 
     prompt = template.format(
         ahg_context=ahg_text,
@@ -456,13 +517,16 @@ async def get_todays_calls(
                 log.warning("precall_invitees_failed", event_uuid=event_uuid, error=str(e))
 
         event_memberships = event.get("event_memberships", [])
-        host_name = ""
-        host_email = ""
+        hosts = []
         for membership in event_memberships:
-            user_info_member = membership.get("user_name", "") or membership.get("user", "")
-            if user_info_member:
-                host_name = user_info_member
-            host_email = membership.get("user_email", "")
+            member_name = membership.get("user_name", "") or membership.get("user", "")
+            member_email = membership.get("user_email", "")
+            if member_email:
+                hosts.append({"name": member_name, "email": member_email})
+
+        # For backwards compat, keep host_name/host_email as primary host
+        host_name = hosts[0]["name"] if hosts else ""
+        host_email = hosts[0]["email"] if hosts else ""
 
         prospect_calls.append({
             "event_uuid": event_uuid,
@@ -470,6 +534,7 @@ async def get_todays_calls(
             "start_time": start_time,
             "host_name": host_name,
             "host_email": host_email,
+            "hosts": hosts,
             "invitees": invitees,
         })
 
@@ -855,15 +920,20 @@ async def _process_single_call(
     ocean_client: OceanClient | None = None,
     ninjapear_client: NinjaPearClient | None = None,
 ) -> None:
-    """Research a prospect and DM the assigned rep."""
+    """Research a prospect and DM ALL assigned reps (each gets role-appropriate brief)."""
     invitees = call.get("invitees", [])
     if not invitees:
         log.info("precall_no_invitees", event=call.get("event_name"))
         return
 
-    host_email = call.get("host_email", "")
-    host_name = call.get("host_name", "")
-    rep_profile = get_rep_profile(host_email)
+    # Collect all hosts for this event
+    hosts = call.get("hosts", [])
+    if not hosts:
+        # Fallback for old format
+        host_email = call.get("host_email", "")
+        host_name = call.get("host_name", "")
+        if host_email:
+            hosts = [{"name": host_name, "email": host_email}]
 
     for invitee in invitees:
         prospect_email = invitee.get("email", "")
@@ -876,34 +946,39 @@ async def _process_single_call(
         )
         prospect_name = prospect_data.get("name", prospect_email)
         confidence_label, confidence_pct = _compute_confidence(prospect_data)
-
-        brief = await generate_precall_brief(claude_client, prospect_data, rep_profile)
-        if not brief:
-            log.warning("precall_empty_brief", prospect=prospect_name)
-            return
-
         time_str = _format_time_est(call.get("start_time", ""))
-        dm_text = _build_dm_message(
-            prospect_name, call, time_str,
-            confidence_label, confidence_pct,
-            prospect_data, brief,
-        )
 
-        # Send DM directly to the rep using their Slack user ID
-        slack_user_id = rep_profile.get("slack_user_id") if rep_profile else None
+        # Send a brief to EACH host with their role-appropriate template
+        for host in hosts:
+            host_email = host.get("email", "")
+            host_name = host.get("name", "")
+            rep_profile = get_rep_profile(host_email)
 
-        if slack_client.web_client and slack_user_id:
-            try:
-                await slack_client.send_dm_by_user_id(slack_user_id, dm_text)
-                log.info(
-                    "precall_brief_dm_sent",
-                    rep=host_name,
-                    slack_id=slack_user_id,
-                    prospect=prospect_name,
-                    confidence=confidence_label,
-                )
-            except Exception as e:
-                log.warning("precall_dm_failed", rep=host_name, error=str(e))
+            brief = await generate_precall_brief(claude_client, prospect_data, rep_profile)
+            if not brief:
+                log.warning("precall_empty_brief", prospect=prospect_name, rep=host_name)
+                continue
+
+            dm_text = _build_dm_message(
+                prospect_name, call, time_str,
+                confidence_label, confidence_pct,
+                prospect_data, brief,
+            )
+
+            slack_user_id = rep_profile.get("slack_user_id") if rep_profile else None
+
+            if slack_client.web_client and slack_user_id:
+                try:
+                    await slack_client.send_dm_by_user_id(slack_user_id, dm_text)
+                    log.info(
+                        "precall_brief_dm_sent",
+                        rep=host_name,
+                        slack_id=slack_user_id,
+                        prospect=prospect_name,
+                        confidence=confidence_label,
+                    )
+                except Exception as e:
+                    log.warning("precall_dm_failed", rep=host_name, error=str(e))
+                    await slack_client.send_message(dm_text)
+            else:
                 await slack_client.send_message(dm_text)
-        else:
-            await slack_client.send_message(dm_text)

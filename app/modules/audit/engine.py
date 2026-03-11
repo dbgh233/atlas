@@ -240,11 +240,24 @@ def _check_close_lost_reason(
     """Check if a Close Lost deal has a close reason recorded.
 
     GHL stores lost reason via opp.get('lostReasonId'). If missing,
-    increment the counter. The exact field may need verification.
+    create a finding with the deal name so the digest can list them.
     """
     lost_reason_id = opp.get("lostReasonId")
     if not lost_reason_id:
         result.close_lost_missing_reason += 1
+        opp_name = opp.get("name", opp.get("id", "Unknown"))
+        assigned_to = opp.get("assignedTo", "Unassigned") or "Unassigned"
+        result.findings.append(AuditFinding(
+            category="close_lost_issue",
+            opp_id=opp.get("id", ""),
+            opp_name=opp_name,
+            stage="Close Lost",
+            assigned_to=assigned_to,
+            description="Close Lost reason missing",
+            field_name="Lost Reason",
+            suggested_action="Set a close reason so we can track why deals are lost",
+            severity="human_gap",
+        ))
 
 
 def _check_fields_contextual(

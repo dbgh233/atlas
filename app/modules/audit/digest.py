@@ -1,13 +1,14 @@
 """Slack digest formatter — compact, actionable daily audit summary.
 
 Design principles:
-1. SHORT — 15-20 lines max, no walls of text
-2. System failures grouped into one line with count
-3. Per-person sections with Slack @mentions
-4. Overdue tasks: just the count per person, one line
-5. Missing fields grouped by what's missing, not by opp
-6. No stale deals, no info items
-7. Close Lost missing reason: one summary line
+1. Every item is actionable — includes what to do, not just what's wrong
+2. Every item includes the opportunity/contact name
+3. System failures: suppress if count unchanged from previous run
+4. Per-person sections with Slack @mentions
+5. Overdue tasks: count per person, one line
+6. No arbitrary limits — show everything, but keep each item to one line
+7. Close Lost missing reason: list the deal names
+8. SLA deals: include recommended action
 """
 
 from __future__ import annotations
@@ -46,8 +47,15 @@ def format_digest(
     result: AuditResult,
     tagged: list[TaggedFinding] | None = None,
     trend_summary: str | None = None,
+    previous_system_counts: dict[str, int] | None = None,
 ) -> str:
-    """Format a compact, actionable audit digest for Slack."""
+    """Format a compact, actionable audit digest for Slack.
+
+    Args:
+        previous_system_counts: Dict of {field_label: count} from the previous
+            audit run. If the current count matches, that system failure line
+            is suppressed (no change = no noise).
+    """
 
     # All-clear message
     if result.total_issues == 0 and not result.overdue_task_counts and not result.close_lost_missing_reason:
@@ -66,25 +74,33 @@ def format_digest(
     lines.append(f":bar_chart: *Atlas Daily* -- {result.total_opportunities} opps checked")
 
     # -----------------------------------------------------------------------
-    # System failures — one grouped line per failure type
+    # System failures — one grouped line per failure type, suppress if unchanged
     # -----------------------------------------------------------------------
     system_failures = [f for f in result.findings if f.severity == "system_failure"]
     if system_failures:
-        # Group by field_name to collapse duplicates
         by_field: dict[str, list[AuditFinding]] = defaultdict(list)
         for f in system_failures:
             key = f.field_name or f.description
             by_field[key].append(f)
 
+        prev = previous_system_counts or {}
+        shown_any = False
         for field_label, findings in by_field.items():
-            # Find common stage pattern if possible
-            stages = {f.stage for f in findings}
-            stage_hint = f" at {next(iter(stages))}" if len(stages) == 1 else ""
+            count = len(findings)
+            prev_count = prev.get(field_label, -1)  # -1 = never seen before
+            if count == prev_count:
+                continue  # Suppress — no change from last run
+            direction = ""
+            if prev_count >= 0:
+                delta = count - prev_count
+                direction = f" ({'+' if delta > 0 else ''}{delta})" if delta != 0 else ""
             lines.append(
-                f":rotating_light: *Zap Issue*: {len(findings)} opps missing {field_label}{stage_hint}"
+                f":rotating_light: *Zap Issue*: {count} opps missing {field_label}{direction}"
             )
-        # One-line suggestion for all system failures
-        lines.append("  Bookings went through but Zap didn't stamp fields. Check Zapier.")
+            shown_any = True
+
+        if shown_any:
+            lines.append("  _Check Zapier -- bookings went through but fields weren't stamped._")
 
     # -----------------------------------------------------------------------
     # Per-person sections — human_gap findings + overdue task counts
@@ -105,45 +121,48 @@ def format_digest(
             continue
 
         mention = _user_mention(user_id)
-        count_label = f" ({item_count} items)" if item_count > 1 else ""
-        lines.append(f"\n{mention}{count_label}:")
+        lines.append(f"\n{mention} ({item_count} items):")
 
-        # Group missing fields by field_name to collapse "Lead Source missing on N contacts"
+        # Group contact-level missing fields (like Lead Source) by field_name
+        # to avoid listing 28 separate contacts — keep the grouped format
         field_groups: dict[str, list[AuditFinding]] = defaultdict(list)
         other_findings: list[AuditFinding] = []
 
         for f in user_findings:
-            if f.field_name and f.category in ("missing_field", "contact_issue"):
+            if f.field_name and f.category == "contact_issue":
                 field_groups[f.field_name].append(f)
             else:
                 other_findings.append(f)
 
-        # Render grouped missing fields
+        # Render contact-level groups (e.g., "Lead Source missing on 5 contacts")
         for field_label, findings in field_groups.items():
-            if len(findings) == 1:
-                f = findings[0]
-                stage_info = f" ({f.stage})" if f.stage else ""
-                lines.append(f"  :warning: {f.opp_name}{stage_info} -- {field_label} missing")
+            if len(findings) <= 3:
+                # Show individual names when 3 or fewer
+                for f in findings:
+                    lines.append(f"  :warning: {f.opp_name} -- {field_label} missing")
             else:
                 lines.append(f"  :warning: {field_label} missing on {len(findings)} contacts")
 
-        # Render other findings (name_issue, etc.) — one line each
+        # Render each finding with opp name + stage + action
         for f in other_findings:
             stage_info = f" ({f.stage})" if f.stage else ""
-            lines.append(f"  :warning: {f.opp_name}{stage_info} -- {f.description}")
+            action = f" -- {f.suggested_action}" if f.suggested_action else f" -- {f.description}"
+            lines.append(f"  :warning: {f.opp_name}{stage_info}{action}")
 
         # Overdue tasks — single line with count
         if overdue_count:
             lines.append(f"  :clipboard: {overdue_count} overdue tasks -- review in GHL")
 
     # -----------------------------------------------------------------------
-    # Close Lost missing reason
+    # Close Lost missing reason — show deal names
     # -----------------------------------------------------------------------
-    if result.close_lost_missing_reason:
-        n = result.close_lost_missing_reason
-        lines.append(
-            f"\n:grey_question: {n} Close Lost deal{'s' if n != 1 else ''} missing close reason"
-        )
+    close_lost_findings = [
+        f for f in result.findings if f.category == "close_lost_issue"
+    ]
+    if close_lost_findings:
+        lines.append(f"\n:grey_question: *{len(close_lost_findings)} Close Lost deals missing close reason:*")
+        for f in close_lost_findings:
+            lines.append(f"  - {f.opp_name}")
 
     # -----------------------------------------------------------------------
     # Suggestions ready for review

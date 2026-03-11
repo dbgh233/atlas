@@ -158,6 +158,31 @@ async def save_snapshot(
     return snapshot_id
 
 
+async def get_previous_system_counts(db: aiosqlite.Connection) -> dict[str, int]:
+    """Get system_failure counts by field from the previous audit snapshot.
+
+    Returns a dict like {"Website": 15, "High Ticket": 4} so the digest
+    can suppress unchanged system failures (no change = no noise).
+    """
+    repo = AuditRepository(db)
+    previous_snapshots = await repo.get_latest(limit=1)
+    if not previous_snapshots:
+        return {}
+
+    try:
+        prev_results = json.loads(previous_snapshots[0].get("full_results", "{}"))
+        prev_findings = prev_results.get("findings", [])
+    except (json.JSONDecodeError, AttributeError):
+        return {}
+
+    counts: dict[str, int] = {}
+    for pf in prev_findings:
+        if pf.get("severity") == "system_failure":
+            key = pf.get("field_name") or pf.get("description", "")
+            counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
 async def get_trend_comparison(db: aiosqlite.Connection) -> dict:
     """Get week-over-week comparison from stored snapshots."""
     repo = AuditRepository(db)

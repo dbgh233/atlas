@@ -114,6 +114,27 @@ REP_PROFILES: dict[str, dict] = {
         # Last updated from master prompt: 2025
         # Next refresh: Q2 2026
     },
+    "hness@ahgpay.com": {
+        "name": "Hannah Ness",
+        "slack_user_id": "U0A16L99ANB",
+        "calendly_email": "hness@ahgpay.com",
+        "linkedin_url": "",
+        "role": "Onboarding Specialist",
+        "location": "",
+        "master_prompt": (
+            "Hannah Ness is the Onboarding Specialist at Alternative Horizons Group. She manages "
+            "merchant onboarding from signature through first live transaction, ensuring a smooth "
+            "handoff from sales. She coordinates MPA submission, underwriting documentation, "
+            "gateway setup, POS configuration, and compliance verification. Her focus is on "
+            "reducing onboarding timelines, ensuring all documentation is complete and accurate, "
+            "and providing a white-glove experience that reinforces the promises made during sales. "
+            "She works closely with Henry (Sales) and Ism (CS) to ensure seamless transitions."
+        ),
+        "personal_context": "",
+        "rapport_interests": [],
+        # Added: 2026-03-11
+        # TODO: Update with personal context and rapport interests
+    },
 }
 
 # AHG company context for generating briefs — sourced from ahgpay.com and althorizonsg.com

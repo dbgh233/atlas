@@ -137,6 +137,7 @@ async def lifespan(app: FastAPI):
         from app.modules.audit.digest import format_digest
         from app.modules.audit.engine import run_audit
         from app.modules.audit.tracker import (
+            get_previous_system_counts,
             get_trend_comparison,
             save_snapshot,
             tag_findings,
@@ -187,8 +188,14 @@ async def lifespan(app: FastAPI):
                 audit_log.error("scheduled_backfill_error", error=str(bf_err))
                 backfill_result = None
 
+            # Get previous system failure counts for noise suppression
+            prev_sys_counts = await get_previous_system_counts(app.state.db)
+
             # Build digest
-            digest_text = format_digest(result, tagged=tagged, trend_summary=trend_summary)
+            digest_text = format_digest(
+                result, tagged=tagged, trend_summary=trend_summary,
+                previous_system_counts=prev_sys_counts,
+            )
 
             # Append auto-fix summary (CONV-08)
             if auto_fixed:
