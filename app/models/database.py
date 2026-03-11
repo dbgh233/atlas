@@ -339,7 +339,7 @@ class AccountabilityRepository:
     ) -> None:
         """Insert an accountability item, ignoring duplicates for the same day.
 
-        Idempotent per day due to the UNIQUE(finding_key, DATE(created_at))
+        Idempotent per day due to the UNIQUE(finding_key, run_date)
         constraint on the table.
         """
         now = datetime.now(UTC).isoformat()

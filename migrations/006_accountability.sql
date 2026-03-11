@@ -19,9 +19,10 @@ CREATE TABLE IF NOT EXISTS accountability_items (
     ghl_field_value TEXT,
     first_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
     resolved_at TEXT,
+    run_date TEXT NOT NULL DEFAULT (date('now')),
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-    UNIQUE(finding_key, DATE(created_at))
+    UNIQUE(finding_key, run_date)
 );
 
 CREATE INDEX IF NOT EXISTS idx_accountability_status ON accountability_items(status);

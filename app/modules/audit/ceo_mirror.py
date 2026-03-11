@@ -86,8 +86,8 @@ async def format_ceo_mirror(
     if verification_results:
         lines.append("")
         lines.append("*Verifications:*")
-        verified = [v for v in verification_results if v.get("status") == "verified"]
-        failed = [v for v in verification_results if v.get("status") == "failed"]
+        verified = [v for v in verification_results if v.get("verified")]
+        failed = [v for v in verification_results if not v.get("verified")]
 
         if verified:
             lines.append(
@@ -133,7 +133,7 @@ async def format_ceo_mirror(
     # ------------------------------------------------------------------
     total_items = sum(dm.get("items_sent", 0) for dm in dm_results) if dm_results else 0
     resolved_today = len(
-        [v for v in (verification_results or []) if v.get("status") == "verified"]
+        [v for v in (verification_results or []) if v.get("verified")]
     )
     # Chronic count comes from verification results marked as recurring 3+ days
     chronic = 0
@@ -176,10 +176,7 @@ async def send_ceo_mirror(
 
     # Send DM to Drew via Slack
     try:
-        await slack_client.chat_postMessage(
-            channel=CEO_SLACK_ID,
-            text=mirror_text,
-        )
+        await slack_client.send_dm_by_user_id(CEO_SLACK_ID, mirror_text)
         log.info("ceo_mirror_sent", recipient=CEO_SLACK_ID)
     except Exception:
         log.exception("ceo_mirror_send_failed", recipient=CEO_SLACK_ID)
