@@ -29,6 +29,7 @@ from app.modules.audit.rules import (
     STAGE_ORDER,
     USER_NAMES,
     USER_ROLES,
+    get_lost_reason_label,
 )
 from app.modules.precall.rep_profiles import REP_PROFILES
 
@@ -379,7 +380,7 @@ async def get_pipeline_movement(
         opp_name = opp.get("name", "Unknown")
         assigned_to = opp.get("assignedTo", "")
         updated_at = opp.get("updatedAt", "")
-        lost_reason = opp.get("lostReasonId") or ""
+        lost_reason_id = opp.get("lostReasonId") or ""
 
         if "test" in opp_name.lower() or "do not process" in opp_name.lower():
             continue
@@ -387,7 +388,7 @@ async def get_pipeline_movement(
         if updated_at and iso_start <= updated_at <= iso_end:
             lost.append({
                 "name": opp_name,
-                "reason": lost_reason or "No reason given",
+                "reason": get_lost_reason_label(lost_reason_id),
                 "assigned_to": USER_NAMES.get(assigned_to, assigned_to),
                 "assigned_to_ghl_id": assigned_to,
             })
@@ -487,9 +488,9 @@ async def get_commitment_scorecard(
 
 
 def _show_rate_bar(rate: float) -> str:
-    """Visual bar for show rate: filled squares for the rate, empty for the rest."""
+    """Visual bar for show rate: ASCII-safe filled/empty blocks for Slack."""
     filled = round(rate * 10)
-    return "\u2588" * filled + "\u2591" * (10 - filled)
+    return "#" * filled + "-" * (10 - filled)
 
 
 def _show_rate_indicator(rate: float) -> str:

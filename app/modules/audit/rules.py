@@ -163,6 +163,27 @@ SLACK_USER_IDS: dict[str, str] = {
     "MK5s94o3X9NASajdbX2j": "U08GME4NHV3",   # June Babael
 }
 
+# GHL Lost Reason IDs -> human labels
+# These are the custom lost reason options configured in the AHG pipeline.
+LOST_REASON_NAMES: dict[str, str] = {
+    "68cd778303e53023e6620c3e": "Declined by Processor",
+    "6994910da5d1680471803e2c": "Lost to Competitor",
+    "6994910de7a5841b0f76d2a4": "Merchant Unresponsive",
+    "697b71b3ac19f06ba1461d54": "Below Profit Minimum",
+    "6994910dfe4b29bf0d8a3c15": "Pricing Objection",
+    "6994910d03c7924a3b12e8f7": "Docs Never Completed",
+    "6994910d8e2a5c90ab743d16": "Timeline Mismatch",
+    "6994910d4f87b21e9c065a38": "Business Closed",
+}
+
+
+def get_lost_reason_label(reason_id: str | None) -> str:
+    """Resolve a GHL lost reason ID to a human-readable label."""
+    if not reason_id:
+        return "No reason given"
+    return LOST_REASON_NAMES.get(reason_id, reason_id)
+
+
 # Opportunity names to skip entirely during audit
 SKIP_OPP_NAMES: set[str] = {
     "E2E TEST MERCHANT - DO NOT PROCESS",
