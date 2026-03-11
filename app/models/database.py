@@ -7,6 +7,7 @@ queries with ``?`` placeholders.  Rows are returned as plain dicts
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Optional
 
 import aiosqlite
@@ -310,3 +311,244 @@ class IdempotencyRepository:
         )
         await self.db.commit()
         return cursor.rowcount
+
+
+# ---------------------------------------------------------------------------
+# Accountability Items
+# ---------------------------------------------------------------------------
+
+
+class AccountabilityRepository:
+    """CRUD helpers for the ``accountability_items`` table."""
+
+    def __init__(self, db: aiosqlite.Connection) -> None:
+        self.db = db
+
+    async def upsert_item(
+        self,
+        finding_key: str,
+        opp_id: str,
+        opp_name: str,
+        category: str,
+        field_name: Optional[str],
+        severity: str,
+        description: str,
+        suggested_action: Optional[str],
+        assigned_to_ghl: str,
+        assigned_to_slack: Optional[str] = None,
+    ) -> None:
+        """Insert an accountability item, ignoring duplicates for the same day.
+
+        Idempotent per day due to the UNIQUE(finding_key, DATE(created_at))
+        constraint on the table.
+        """
+        now = datetime.now(UTC).isoformat()
+        await self.db.execute(
+            "INSERT OR IGNORE INTO accountability_items "
+            "(finding_key, opp_id, opp_name, category, field_name, severity, "
+            "description, suggested_action, assigned_to_ghl, assigned_to_slack, "
+            "first_seen_at, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                finding_key,
+                opp_id,
+                opp_name,
+                category,
+                field_name,
+                severity,
+                description,
+                suggested_action,
+                assigned_to_ghl,
+                assigned_to_slack,
+                now,
+                now,
+                now,
+            ),
+        )
+        await self.db.commit()
+
+    async def update_status(
+        self,
+        finding_key: str,
+        status: str,
+        clicked_by: Optional[str] = None,
+    ) -> None:
+        """Update status and button metadata for an accountability item.
+
+        If *status* is ``'verified'`` or ``'dismissed'``, ``resolved_at``
+        is also set.
+        """
+        now = datetime.now(UTC).isoformat()
+        resolved = now if status in ("verified", "dismissed") else None
+        await self.db.execute(
+            "UPDATE accountability_items "
+            "SET status = ?, button_clicked_by = ?, button_clicked_at = ?, "
+            "resolved_at = COALESCE(?, resolved_at), updated_at = ? "
+            "WHERE finding_key = ? AND status != 'verified'",
+            (status, clicked_by, now, resolved, now, finding_key),
+        )
+        await self.db.commit()
+
+    async def mark_verified(
+        self,
+        finding_key: str,
+        ghl_field_value: Optional[str] = None,
+    ) -> None:
+        """Mark an item as verified via GHL field check."""
+        now = datetime.now(UTC).isoformat()
+        await self.db.execute(
+            "UPDATE accountability_items "
+            "SET status = 'verified', ghl_verified_at = ?, ghl_field_value = ?, "
+            "resolved_at = ?, updated_at = ? "
+            "WHERE finding_key = ?",
+            (now, ghl_field_value, now, now, finding_key),
+        )
+        await self.db.commit()
+
+    async def get_open_for_user(self, ghl_user_id: str) -> list[dict]:
+        """Return open or due-snoozed items assigned to a GHL user."""
+        cursor = await self.db.execute(
+            "SELECT * FROM accountability_items "
+            "WHERE assigned_to_ghl = ? "
+            "AND (status = 'open' OR (status = 'snoozed' AND snooze_until <= datetime('now'))) "
+            "ORDER BY created_at DESC",
+            (ghl_user_id,),
+        )
+        return _rows_to_dicts(await cursor.fetchall())
+
+    async def get_unverified_marked_done(self) -> list[dict]:
+        """Return items marked done by a rep but not yet GHL-verified."""
+        cursor = await self.db.execute(
+            "SELECT * FROM accountability_items "
+            "WHERE status = 'marked_done' "
+            "ORDER BY updated_at ASC"
+        )
+        return _rows_to_dicts(await cursor.fetchall())
+
+    async def get_snoozed_due(self) -> list[dict]:
+        """Return snoozed items whose snooze period has expired."""
+        cursor = await self.db.execute(
+            "SELECT * FROM accountability_items "
+            "WHERE status = 'snoozed' AND snooze_until <= datetime('now') "
+            "ORDER BY snooze_until ASC"
+        )
+        return _rows_to_dicts(await cursor.fetchall())
+
+    async def reopen_snoozed(self) -> None:
+        """Re-open all snoozed items whose snooze period has expired."""
+        now = datetime.now(UTC).isoformat()
+        await self.db.execute(
+            "UPDATE accountability_items "
+            "SET status = 'open', updated_at = ? "
+            "WHERE status = 'snoozed' AND snooze_until <= datetime('now')",
+            (now,),
+        )
+        await self.db.commit()
+
+    async def get_stats_since(
+        self,
+        since_date: str,
+        ghl_user_id: Optional[str] = None,
+    ) -> list[dict]:
+        """Return counts by status (and optionally by user) since a date.
+
+        If *ghl_user_id* is ``None``, results are grouped by
+        ``assigned_to_ghl`` for a team-wide scorecard.
+        """
+        if ghl_user_id:
+            cursor = await self.db.execute(
+                "SELECT status, COUNT(*) AS count "
+                "FROM accountability_items "
+                "WHERE created_at >= ? AND assigned_to_ghl = ? "
+                "GROUP BY status",
+                (since_date, ghl_user_id),
+            )
+        else:
+            cursor = await self.db.execute(
+                "SELECT assigned_to_ghl, status, COUNT(*) AS count "
+                "FROM accountability_items "
+                "WHERE created_at >= ? "
+                "GROUP BY assigned_to_ghl, status",
+                (since_date,),
+            )
+        return _rows_to_dicts(await cursor.fetchall())
+
+    async def get_chronic_items(self, min_days: int = 3) -> list[dict]:
+        """Return open items that have been unresolved for at least *min_days*."""
+        cursor = await self.db.execute(
+            "SELECT * FROM accountability_items "
+            "WHERE status = 'open' "
+            f"AND first_seen_at <= datetime('now', '-{min_days} days') "
+            "ORDER BY first_seen_at ASC",
+        )
+        return _rows_to_dicts(await cursor.fetchall())
+
+    async def get_resolution_times(
+        self,
+        since_date: str,
+        ghl_user_id: Optional[str] = None,
+    ) -> list[dict]:
+        """Return average resolution time in days for verified items.
+
+        Groups by ``assigned_to_ghl`` if *ghl_user_id* is ``None``.
+        """
+        if ghl_user_id:
+            cursor = await self.db.execute(
+                "SELECT AVG(julianday(resolved_at) - julianday(first_seen_at)) AS avg_days "
+                "FROM accountability_items "
+                "WHERE status = 'verified' AND resolved_at IS NOT NULL "
+                "AND created_at >= ? AND assigned_to_ghl = ?",
+                (since_date, ghl_user_id),
+            )
+        else:
+            cursor = await self.db.execute(
+                "SELECT assigned_to_ghl, "
+                "AVG(julianday(resolved_at) - julianday(first_seen_at)) AS avg_days "
+                "FROM accountability_items "
+                "WHERE status = 'verified' AND resolved_at IS NOT NULL "
+                "AND created_at >= ? "
+                "GROUP BY assigned_to_ghl",
+                (since_date,),
+            )
+        return _rows_to_dicts(await cursor.fetchall())
+
+
+# ---------------------------------------------------------------------------
+# CEO Action Log
+# ---------------------------------------------------------------------------
+
+
+class CEOLogRepository:
+    """CRUD helpers for the ``ceo_action_log`` table."""
+
+    def __init__(self, db: aiosqlite.Connection) -> None:
+        self.db = db
+
+    async def add(
+        self,
+        action_type: str,
+        summary: str,
+        recipient_ghl: Optional[str] = None,
+        recipient_slack: Optional[str] = None,
+        detail: Optional[str] = None,
+    ) -> int:
+        """Insert a CEO action log entry and return its id."""
+        cursor = await self.db.execute(
+            "INSERT INTO ceo_action_log "
+            "(action_type, recipient_ghl, recipient_slack, summary, detail) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (action_type, recipient_ghl, recipient_slack, summary, detail),
+        )
+        await self.db.commit()
+        assert cursor.lastrowid is not None
+        return cursor.lastrowid
+
+    async def get_since(self, since_datetime: str) -> list[dict]:
+        """Return all log entries since a given datetime, newest first."""
+        cursor = await self.db.execute(
+            "SELECT * FROM ceo_action_log "
+            "WHERE created_at >= ? "
+            "ORDER BY created_at DESC",
+            (since_datetime,),
+        )
+        return _rows_to_dicts(await cursor.fetchall())

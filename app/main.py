@@ -135,7 +135,7 @@ async def lifespan(app: FastAPI):
 
     async def _scheduled_audit():
         """Run daily pipeline audit with tagging, snapshot, auto-fixes, and Slack digest."""
-        from app.modules.audit.digest import format_digest, format_digest_blocks
+        from app.modules.audit.digest import format_digest
         from app.modules.audit.engine import run_audit
         from app.modules.audit.tracker import (
             get_previous_system_counts,
@@ -248,23 +248,106 @@ async def lifespan(app: FastAPI):
 
             await app.state.slack_client.send_message(digest_text)
 
-            # Send interactive Block Kit buttons if audit channel is configured
-            audit_channel = settings.slack_audit_channel
-            if audit_channel and app.state.slack_client.web_client:
-                try:
-                    blocks = format_digest_blocks(
-                        result, tagged=tagged,
-                        previous_system_counts=prev_sys_counts,
+            # ---------------------------------------------------------------
+            # Personal DM dispatch + CEO mirror (replaces channel buttons)
+            # ---------------------------------------------------------------
+            try:
+                from app.modules.audit.dm_digest import format_personal_dm, group_findings_by_user
+                from app.modules.audit.verification import reopen_snoozed_items, verify_resolutions
+                from app.modules.audit.ceo_mirror import send_ceo_mirror
+                from app.models.database import AccountabilityRepository
+
+                acct_repo = AccountabilityRepository(app.state.db)
+
+                # Re-open snoozed items whose snooze period expired
+                await reopen_snoozed_items(app.state.db)
+
+                # Verify items previously marked as done
+                verification_results = await verify_resolutions(
+                    app.state.db, app.state.ghl_client
+                )
+
+                # Group findings by user and send personal DMs
+                by_user = group_findings_by_user(tagged)
+                dm_results = []
+
+                for user_ghl_id, user_findings in by_user.items():
+                    from app.modules.audit.rules import SLACK_USER_IDS
+                    slack_id = SLACK_USER_IDS.get(user_ghl_id)
+                    if not slack_id:
+                        continue
+
+                    # Get previously resolved items for this user (yesterday's status)
+                    prev_items = await acct_repo.get_open_for_user(user_ghl_id)
+
+                    overdue_count = result.overdue_task_counts.get(user_ghl_id, 0)
+                    text_fallback, blocks = format_personal_dm(
+                        user_ghl_id, user_findings, overdue_count,
+                        previous_items=[dict(r) for r in prev_items] if prev_items else None,
                     )
+
+                    # Send DM with buttons
                     if blocks:
-                        await app.state.slack_client.send_rich_message(
-                            channel=audit_channel,
-                            blocks=blocks,
-                            text="Atlas audit -- quick actions",
+                        try:
+                            await app.state.slack_client.send_dm_blocks_by_user_id(
+                                slack_id, blocks, text=text_fallback
+                            )
+                        except Exception as dm_err:
+                            audit_log.warning("dm_send_failed", user=user_ghl_id, error=str(dm_err))
+                            # Fallback to text-only DM
+                            try:
+                                await app.state.slack_client.send_dm_by_user_id(slack_id, text_fallback)
+                            except Exception:
+                                pass
+
+                    # Upsert accountability items for tracking
+                    new_count = 0
+                    recurring_count = 0
+                    for tf in user_findings:
+                        f = tf.finding
+                        finding_key = f"{f.opp_id}|{f.category}|{f.field_name or ''}"
+                        await acct_repo.upsert_item(
+                            finding_key=finding_key,
+                            opp_id=f.opp_id,
+                            opp_name=f.opp_name,
+                            category=f.category,
+                            field_name=f.field_name or "",
+                            severity=f.severity,
+                            description=f.description,
+                            suggested_action=f.suggested_action or "",
+                            assigned_to_ghl=user_ghl_id,
+                            assigned_to_slack=slack_id,
                         )
-                        audit_log.info("audit_buttons_sent", channel=audit_channel, block_count=len(blocks))
-                except Exception as btn_err:
-                    audit_log.error("audit_buttons_error", error=str(btn_err))
+                        if tf.tag == "NEW":
+                            new_count += 1
+                        else:
+                            recurring_count += 1
+
+                    from app.modules.audit.rules import USER_NAMES as _UN
+                    dm_results.append({
+                        "user_ghl_id": user_ghl_id,
+                        "user_name": _UN.get(user_ghl_id, user_ghl_id),
+                        "items_sent": len(user_findings),
+                        "new_count": new_count,
+                        "recurring_count": recurring_count,
+                    })
+
+                # Send CEO mirror
+                await send_ceo_mirror(
+                    app.state.slack_client,
+                    app.state.db,
+                    dm_results=dm_results,
+                    verification_results=verification_results,
+                    auto_fixes=auto_fixed if auto_fixed else None,
+                )
+
+                audit_log.info(
+                    "dm_dispatch_complete",
+                    users_dm_sent=len(dm_results),
+                    verifications=len(verification_results) if verification_results else 0,
+                )
+            except Exception as dm_err:
+                audit_log.error("dm_dispatch_error", error=str(dm_err), exc_info=True)
 
             audit_log.info(
                 "scheduled_audit_complete",
@@ -522,8 +605,30 @@ async def lifespan(app: FastAPI):
         app.state.otter_client = None
         log.info("otter_client_skipped", reason="no_api_key")
 
+    # Weekly accountability scorecard -- DM'd to CEO on Fridays
+    async def _weekly_scorecard():
+        """Send weekly accountability scorecard to Drew."""
+        from app.modules.audit.scorecard import send_weekly_scorecard
+
+        sc_log = structlog.get_logger()
+        sc_log.info("weekly_scorecard_start")
+        try:
+            await send_weekly_scorecard(app.state.db, app.state.slack_client)
+            sc_log.info("weekly_scorecard_complete")
+        except Exception as e:
+            sc_log.error("weekly_scorecard_error", error=str(e), exc_info=True)
+
+    app.state.scheduler.add_job(
+        _weekly_scorecard,
+        "cron",
+        hour=16,
+        minute=15,
+        day_of_week="fri",
+        id="weekly_scorecard",
+    )
+
     app.state.scheduler.start()
-    jobs = ["daily_audit_8am_est", "subscription_check_6h", "weekly_rollup_fri_4pm", "daily_auto_dismiss_730am", "precall_briefs_730am", "weekly_show_rate_fri_430pm"]
+    jobs = ["daily_audit_8am_est", "subscription_check_6h", "weekly_rollup_fri_4pm", "daily_auto_dismiss_730am", "precall_briefs_730am", "weekly_show_rate_fri_430pm", "weekly_scorecard_fri_415pm"]
     if settings.otter_api_key:
         jobs.extend(["otter_sync_2h", "noshow_detection_monthu_7pm", "noshow_detection_fri_6pm"])
     log.info("scheduler_started", jobs=jobs)

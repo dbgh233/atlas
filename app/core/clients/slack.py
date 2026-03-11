@@ -77,6 +77,30 @@ class SlackClient:
         await self.web_client.chat_postMessage(channel=dm_channel, text=text)
         log.info("slack_dm_sent", user_id=user_id)
 
+    async def send_dm_blocks_by_user_id(
+        self, user_id: str, blocks: list[dict], text: str = ""
+    ) -> None:
+        """Send Block Kit blocks as a DM to a Slack user by user ID.
+
+        Opens a conversation with the user and posts blocks.
+        Falls back to text-only if web_client is not available.
+        """
+        if not self.web_client:
+            if text:
+                await self.send_message(text)
+            return
+
+        # Open DM conversation
+        conv = await self.web_client.conversations_open(users=[user_id])
+        channel_id = conv["channel"]["id"]
+
+        await self.web_client.chat_postMessage(
+            channel=channel_id,
+            blocks=blocks,
+            text=text or "Atlas notification",
+        )
+        log.info("slack_dm_blocks_sent", user_id=user_id, block_count=len(blocks))
+
     async def post_to_channel(self, channel: str, text: str) -> None:
         """Post a text-only message via WebClient (not webhook)."""
         if not self.web_client:

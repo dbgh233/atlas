@@ -6,13 +6,14 @@ the /atlas slash command for system status.
 Also handles interactive button callbacks for:
 - Commitment tracking (meeting follow-ups)
 - Audit finding actions (dismiss, create GHL task)
+- Accountability DM actions (mark done, snooze, not mine)
 """
 
 from __future__ import annotations
 
 import os
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import structlog
 from slack_bolt.adapter.fastapi.async_handler import AsyncSlackRequestHandler
@@ -345,6 +346,160 @@ async def handle_audit_create_task(ack, action, body, say, client) -> None:
     except Exception as e:
         log.error("audit_create_task_error", error=str(e), opp_id=opp_id)
         await say(f":x: Failed to create task for opp {opp_id}: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Accountability DM buttons (mark done, snooze, not mine)
+# ---------------------------------------------------------------------------
+
+
+@slack_app.action("acct_mark_done")
+async def handle_mark_done(ack, action, body, client) -> None:
+    """Mark an accountability item as done (pending GHL verification)."""
+    await ack()
+
+    value = action.get("value", "")
+    user_id = body.get("user", {}).get("id", "unknown")
+    log.info("acct_mark_done", value=value, user=user_id)
+
+    if not value or not _agent:
+        return
+
+    # value IS the finding_key: "opp_id|category|field_name"
+    finding_key = value
+
+    from app.models.database import AccountabilityRepository
+
+    repo = AccountabilityRepository(_agent.db)
+    await repo.update_status(finding_key, "marked_done", clicked_by=user_id)
+
+    # Update the original message to replace buttons with status
+    original_blocks = body.get("message", {}).get("blocks", [])
+    updated_blocks = _replace_action_with_status(
+        original_blocks, value,
+        f":white_check_mark: Marked done by <@{user_id}> — Atlas will verify in GHL",
+    )
+
+    # Update the DM message
+    channel_id = body.get("channel", {}).get("id")
+    message_ts = body.get("message", {}).get("ts")
+    if channel_id and message_ts:
+        try:
+            await client.chat_update(
+                channel=channel_id,
+                ts=message_ts,
+                blocks=updated_blocks,
+                text="Item marked as done",
+            )
+        except Exception as e:
+            log.warning("mark_done_update_failed", error=str(e))
+
+
+@slack_app.action("acct_snooze")
+async def handle_snooze(ack, action, body, client) -> None:
+    """Snooze an accountability item for 24 hours."""
+    await ack()
+
+    value = action.get("value", "")
+    user_id = body.get("user", {}).get("id", "unknown")
+    log.info("acct_snooze", value=value, user=user_id)
+
+    if not value or not _agent:
+        return
+
+    finding_key = value
+
+    from app.models.database import AccountabilityRepository
+
+    repo = AccountabilityRepository(_agent.db)
+    await repo.update_status(finding_key, "snoozed", clicked_by=user_id)
+
+    # Set snooze_until = now + 24 hours via direct SQL
+    snooze_until = (datetime.now(UTC) + timedelta(hours=24)).isoformat()
+    now = datetime.now(UTC).isoformat()
+    await _agent.db.execute(
+        "UPDATE accountability_items SET snooze_until = ?, updated_at = ? "
+        "WHERE finding_key = ? AND status = 'snoozed'",
+        (snooze_until, now, finding_key),
+    )
+    await _agent.db.commit()
+
+    # Update the original message to replace buttons with status
+    original_blocks = body.get("message", {}).get("blocks", [])
+    updated_blocks = _replace_action_with_status(
+        original_blocks, value,
+        f":zzz: Snoozed for 24h by <@{user_id}>",
+    )
+
+    channel_id = body.get("channel", {}).get("id")
+    message_ts = body.get("message", {}).get("ts")
+    if channel_id and message_ts:
+        try:
+            await client.chat_update(
+                channel=channel_id,
+                ts=message_ts,
+                blocks=updated_blocks,
+                text="Item snoozed for 24 hours",
+            )
+        except Exception as e:
+            log.warning("snooze_update_failed", error=str(e))
+
+
+@slack_app.action("acct_not_mine")
+async def handle_not_mine(ack, action, body, client) -> None:
+    """Mark an item as 'Not Mine' — will resurface in next audit for correct person."""
+    await ack()
+
+    value = action.get("value", "")
+    user_id = body.get("user", {}).get("id", "unknown")
+    log.info("acct_not_mine", value=value, user=user_id)
+
+    if not value or not _agent:
+        return
+
+    finding_key = value
+
+    from app.models.database import AccountabilityRepository
+
+    repo = AccountabilityRepository(_agent.db)
+    await repo.update_status(finding_key, "not_mine", clicked_by=user_id)
+
+    # Log to CEO action log
+    from app.models.database import CEOLogRepository
+
+    ceo_log = CEOLogRepository(_agent.db)
+    parts = finding_key.split("|", 2)
+    opp_id = parts[0] if parts else "?"
+    await ceo_log.add(
+        "not_mine",
+        f"<@{user_id}> marked item as Not Mine: {finding_key}",
+        recipient_slack=user_id,
+    )
+
+    # Update the original message to replace buttons with status
+    original_blocks = body.get("message", {}).get("blocks", [])
+    updated_blocks = _replace_action_with_status(
+        original_blocks, value,
+        f":arrow_right: Marked 'Not Mine' by <@{user_id}> — will be reassigned",
+    )
+
+    channel_id = body.get("channel", {}).get("id")
+    message_ts = body.get("message", {}).get("ts")
+    if channel_id and message_ts:
+        try:
+            await client.chat_update(
+                channel=channel_id,
+                ts=message_ts,
+                blocks=updated_blocks,
+                text="Item marked as Not Mine",
+            )
+        except Exception as e:
+            log.warning("not_mine_update_failed", error=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
 
 
 def _replace_action_with_status(
