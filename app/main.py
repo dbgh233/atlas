@@ -505,10 +505,18 @@ async def lifespan(app: FastAPI):
         app.state.scheduler.add_job(
             _noshow_detection,
             "cron",
+            hour=19,
+            minute=0,
+            day_of_week="mon-thu",
+            id="noshow_detection_monthu",
+        )
+        app.state.scheduler.add_job(
+            _noshow_detection,
+            "cron",
             hour=18,
             minute=0,
-            day_of_week="mon-fri",
-            id="noshow_detection",
+            day_of_week="fri",
+            id="noshow_detection_fri",
         )
     else:
         app.state.otter_client = None
@@ -517,7 +525,7 @@ async def lifespan(app: FastAPI):
     app.state.scheduler.start()
     jobs = ["daily_audit_8am_est", "subscription_check_6h", "weekly_rollup_fri_4pm", "daily_auto_dismiss_730am", "precall_briefs_730am", "weekly_show_rate_fri_430pm"]
     if settings.otter_api_key:
-        jobs.extend(["otter_sync_2h", "noshow_detection_6pm_est"])
+        jobs.extend(["otter_sync_2h", "noshow_detection_monthu_7pm", "noshow_detection_fri_6pm"])
     log.info("scheduler_started", jobs=jobs)
 
     # Conversational agent (Phase 6)

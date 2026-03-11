@@ -204,13 +204,27 @@ class GHLClient:
         due_date: str | None = None,
         assigned_to: str | None = None,
     ) -> dict:
-        """Create a task on a contact."""
+        """Create a task on a contact.
+
+        GHL requires dueDate in ISO format. Defaults to tomorrow 9 AM EST.
+        Uses 'body' field for description per GHL API spec.
+        """
+        from datetime import UTC, datetime, timedelta
+
         log.debug("ghl_create_task", contact_id=contact_id, title=title)
-        body: dict = {"title": title}
+
+        if not due_date:
+            tomorrow = datetime.now(UTC) + timedelta(days=1)
+            due_date = tomorrow.replace(hour=14, minute=0, second=0, microsecond=0).strftime(
+                "%Y-%m-%dT%H:%M:%S.000Z"
+            )
+
+        body: dict = {
+            "title": title,
+            "dueDate": due_date,
+        }
         if description:
-            body["description"] = description
-        if due_date:
-            body["dueDate"] = due_date
+            body["body"] = description
         if assigned_to:
             body["assignedTo"] = assigned_to
         resp = await self.http_client.post(
