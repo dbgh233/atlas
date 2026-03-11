@@ -26,6 +26,7 @@ from app.core.clients.ninjapear import NinjaPearClient
 from app.core.clients.ocean import OceanClient
 from app.core.clients.serper import SerperClient
 from app.core.clients.slack import SlackClient
+from app.modules.autofill.updater import run_autofill_after_precall
 from app.modules.precall.rep_profiles import (
     AHG_CONTEXT,
     get_rep_profile,
@@ -770,6 +771,9 @@ async def _gather_prospect_data(
     # Look up in GHL
     ghl_contact = await _find_ghl_contact(ghl_client, prospect_email, prospect_name)
     if ghl_contact:
+        # Store contact ID for autofill module
+        prospect_data["ghl_contact_id"] = ghl_contact.get("id", "")
+
         ghl_parts = []
         if ghl_contact.get("companyName"):
             ghl_parts.append(f"Company: {ghl_contact['companyName']}")
@@ -994,6 +998,28 @@ async def _process_single_call(
         prospect_name = prospect_data.get("name", prospect_email)
         confidence_label, confidence_pct = _compute_confidence(prospect_data)
         time_str = _format_time_est(call.get("start_time", ""))
+
+        # ---------------------------------------------------------------
+        # Auto-fill CRM fields from enrichment data (100% confidence only)
+        # ---------------------------------------------------------------
+        contact_id = prospect_data.get("ghl_contact_id", "")
+        if contact_id:
+            try:
+                await run_autofill_after_precall(
+                    ghl_client=ghl_client,
+                    contact_id=contact_id,
+                    opp_id=None,  # No opp lookup in precall flow
+                    opp_custom_fields=None,
+                    prospect_data=prospect_data,
+                    slack_client=slack_client,
+                )
+            except Exception as e:
+                log.warning(
+                    "precall_autofill_failed",
+                    prospect=prospect_name,
+                    contact_id=contact_id,
+                    error=str(e),
+                )
 
         # Send a brief to EACH host with their role-appropriate template
         for host in hosts:

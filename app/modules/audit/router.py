@@ -6,8 +6,9 @@ import structlog
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
+from app.core.config import get_settings
 from app.modules.audit.calendly_backfill import format_backfill_digest, run_calendly_backfill
-from app.modules.audit.digest import format_digest
+from app.modules.audit.digest import format_digest, format_digest_blocks
 from app.modules.audit.engine import run_audit
 from app.modules.audit.tracker import get_trend_comparison, save_snapshot, tag_findings
 
@@ -58,6 +59,22 @@ async def trigger_audit(request: Request) -> JSONResponse:
             await slack_client.send_message(digest_text)
         except Exception as e:
             log.error("audit_slack_digest_failed", error=str(e))
+
+        # Send interactive Block Kit buttons if audit channel is configured
+        settings = get_settings()
+        audit_channel = settings.slack_audit_channel
+        if audit_channel and slack_client.web_client:
+            try:
+                blocks = format_digest_blocks(result, tagged=tagged)
+                if blocks:
+                    await slack_client.send_rich_message(
+                        channel=audit_channel,
+                        blocks=blocks,
+                        text="Atlas audit -- quick actions",
+                    )
+                    log.info("audit_buttons_sent", channel=audit_channel)
+            except Exception as btn_err:
+                log.error("audit_buttons_error", error=str(btn_err))
 
         # Build JSON response
         findings_json = [

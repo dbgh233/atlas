@@ -1,75 +1,67 @@
-# Project State
+# Atlas Project State
 
-## Project Reference
+## Current Phase: 10 — Pre-Call Intelligence Refinement
+**Status:** IN PROGRESS
+**Last Session:** 2026-03-10
 
-See: .planning/PROJECT.md (updated 2026-03-05)
+## What Was Just Completed (This Session)
 
-**Core value:** Calendly events automatically stamp the right fields on the right GHL opportunity so downstream automation workflows fire without manual intervention -- and Atlas learns from every human interaction to progressively handle more autonomously.
-**Current focus:** ALL 8 PHASES COMPLETE — v1 ready
+### Deployed to Production (commit f98a384 + revert 8b3eb4a)
+1. **Split brief templates** — Sales (Henry) vs CS (Ism) prompts
+2. **LinkedIn name-matching validation** — fuzzy SequenceMatcher rejects wrong-person profiles
+3. **Rebalanced confidence scoring** — fixed 100-point scale (Calendly Q&A=20, LinkedIn=15, GHL=15, Website=15, Domain=10, Search=8, Ocean company=7, Ocean person=5, Name=5)
+4. **Direct LinkedIn URL** in Slack DM header (not just search link)
+5. **Data source attribution footer** on every brief
+6. **Tighter prompts** — merged Rapport/Conversation into Rapport Hooks, Watch Out For only when non-obvious
+7. **Serper.dev integration** (earlier session) — replaces deprecated Google Custom Search
 
-## Current Position
+### Posted Test Brief to #sales-pipeline
+- Gary Trinh / Vital Peptique discovery call brief posted to channel C08RBFA977B
+- Format verified working in Slack with proper mrkdwn rendering
 
-Phase: 8 of 8 (Operational Readiness) — COMPLETE
-Status: All phases deployed and verified live on Railway
-Last activity: 2026-03-05 -- Phases 6, 7, 8 executed in single session
+## PENDING: 4 Data Quality Fixes (User Reviewing)
 
-Progress: [██████████] 100%
+### Fix 1: Add "onboarding" to CALL_KEYWORDS
+- **Impact:** Jason Beeching (Certified-pep, **$3M/month**, $40K high ticket) and Shawn Pinske (Bayside Peptides, **$500K/month**) get ZERO briefs tomorrow
+- **File:** `app/modules/precall/intelligence.py` line ~33
+- **Risk:** None
 
-## Performance Metrics
+### Fix 2: Add Hannah Ness to REP_PROFILES
+- **Impact:** She hosts both onboarding calls but has no profile — no brief delivery even if keyword matches
+- **File:** `app/modules/precall/rep_profiles.py`
+- **Need:** Hannah's Slack user ID (email confirmed: hness@ahgpay.com)
 
-**Velocity:**
-- Phases 3-8 completed in two sessions
-- Average: ~5 min per phase
+### Fix 3: Multi-host events should brief ALL hosts
+- **Impact:** "Meeting with Henry + Ism" (Kevin Sampson / Dad Grass) only briefs Ism (last in list). Henry gets nothing.
+- **File:** `app/modules/precall/intelligence.py` in `_process_single_call()`
 
-**By Phase:**
+### Fix 4: Brian Kan LinkedIn wrong-person — ALREADY FIXED
+- Name-match validation deployed, will reject "Brian Kan - Supermicro" LinkedIn
 
-| Phase | Status | Duration |
-|-------|--------|----------|
-| 1. Foundation | Complete | ~15 min |
-| 2. Webhook Event Handler | Complete | ~8 min |
-| 3. Webhook Hardening | Complete | ~5 min |
-| 4. Pipeline Audit | Complete | ~10 min |
-| 5. Audit Intelligence | Complete | ~5 min |
-| 6. Conversational Agent | Complete | ~5 min |
-| 7. Graduated Autonomy | Complete | ~5 min |
-| 8. Operational Readiness | Complete | ~5 min |
+## Tomorrow's Calendar (March 11, 2026)
 
-## Accumulated Context
+| Time EST | Event | Host | Prospect | Company | Volume | Brief? |
+|---|---|---|---|---|---|---|
+| 12:00 PM | Meeting with Henry | Henry | Brian Kan | Amazing Botanicals (kratom) | ? | YES - Sales |
+| 1:00 PM | AHG Payments Onboarding | Hannah Ness | Jason Beeching | Certified-pep (peptides) | $3M/mo | NO - missing keyword + no rep profile |
+| 2:00 PM | AHG Payments Onboarding | Hannah Ness | Shawn Pinske | Bayside Peptides | $500K/mo | NO - same |
+| 3:00 PM | General Meeting with Henry | Henry | Joshua Dickinson | EVG Extracts (hemp) | ? | YES - Sales |
+| 3:30 PM | Meeting with Henry + Ism | Henry + Ism | Kevin Sampson | Dad Grass (hemp/cannabis) | ? | YES but only Ism (bug) |
+| 4:30 PM | AHG Payments Discovery | Henry | Gary Trinh | Vital Peptique (peptides) | $25-50K/mo | YES - Sales |
 
-### Decisions
+## Enrichment Data Gathered
 
-- GHL pagination meta.startAfter can be int or list — handle both
-- Audit suggested_action field included from Phase 4 (AUDIT-12 satisfied early)
-- Issue tagging uses stable key: opp_id:category:field_name/description
-- first_seen dates tracked in full_results JSON for STILL OPEN day counting
-- Snapshots saved on every audit run (scheduled and manual)
-- Trend comparison uses 7-day lookback from stored snapshots
-- Conversation agent uses Claude Sonnet (cost-effective for tool_use loops)
-- Confidence scoring: >90% approval rate for 2+ weeks triggers auto-promotion
-- Auto-fix only applies when suggested_action contains a concrete "Set X to Y" pattern
-- Subscription health check runs on startup and every 6 hours
+- **Brian Kan:** LinkedIn REJECTED (wrong person - Supermicro). Ocean: kratom e-commerce Hollywood FL, 2-10 employees
+- **Joshua Dickinson:** LinkedIn VERIFIED (EVP at EVG Extracts, WashU). Ocean: CO hemp extracts, 11-50 employees
+- **Kevin Sampson:** LinkedIn VERIFIED (Co-Founder & Head of Product at Dad Grass). Ocean: Cannabis/Retail, 2-10 employees
+- **Gary Trinh:** LinkedIn VERIFIED (Lafayette Hill PA). Ocean: peptides/pharma/biotech, 2-10 employees
 
-### Infrastructure Details
-
+## Infrastructure
 - **Railway Domain:** atlas-production-248a.up.railway.app
-- **GitHub Repo:** dbgh233/atlas (public)
-- **Endpoints:** /health, /webhooks/calendly, /admin/webhooks/setup, /admin/dlq, /audit/run, /audit/trend, /test/clients, /slack/events
-- **Slash Command:** /atlas status
-- **Scheduler Jobs:** daily_audit (8 AM EST weekdays), subscription_health_check (every 6h)
+- **GitHub:** dbgh233/atlas (auto-deploys on push to main)
+- **Slack Channel:** #sales-pipeline (C08RBFA977B)
+- **Morning Cron:** 7:30 AM EST Mon-Fri
+- **Serper API Key:** set as SERPER_API_KEY on Railway
 
-### Pending Todos
-
-- Calendly PAT needs webhooks:write scope (currently 403)
-- Set real CALENDLY_WEBHOOK_SECRET after subscription created
-- Register /atlas slash command in Slack app configuration
-
-### Blockers/Concerns
-
-- Calendly webhook subscriptions not active (PAT scope missing)
-- /atlas slash command needs to be registered in Slack app settings
-
-## Session Continuity
-
-Last session: 2026-03-05
-Stopped at: All 8 phases complete
-Resume file: None
+## Previous Phases (1-9): COMPLETE
+See ROADMAP.md for full history. Phases 1-8 are core Atlas (webhooks, audit, conversation agent, autonomy). Phase 9 was pre-call intelligence v1.

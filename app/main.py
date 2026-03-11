@@ -90,7 +90,7 @@ async def lifespan(app: FastAPI):
         web_client=AsyncWebClient(token=settings.slack_bot_token) if settings.slack_bot_token else None,
     )
 
-    # Search client — prefer Serper.dev, fall back to Google Custom Search
+    # Search client -- prefer Serper.dev, fall back to Google Custom Search
     if settings.serper_api_key:
         app.state.google_search_client = SerperClient(
             http_client=app.state.http_client,
@@ -135,7 +135,7 @@ async def lifespan(app: FastAPI):
 
     async def _scheduled_audit():
         """Run daily pipeline audit with tagging, snapshot, auto-fixes, and Slack digest."""
-        from app.modules.audit.digest import format_digest
+        from app.modules.audit.digest import format_digest, format_digest_blocks
         from app.modules.audit.engine import run_audit
         from app.modules.audit.tracker import (
             get_previous_system_counts,
@@ -247,6 +247,25 @@ async def lifespan(app: FastAPI):
                 audit_log.error("scheduled_pattern_detection_error", error=str(pd_err))
 
             await app.state.slack_client.send_message(digest_text)
+
+            # Send interactive Block Kit buttons if audit channel is configured
+            audit_channel = settings.slack_audit_channel
+            if audit_channel and app.state.slack_client.web_client:
+                try:
+                    blocks = format_digest_blocks(
+                        result, tagged=tagged,
+                        previous_system_counts=prev_sys_counts,
+                    )
+                    if blocks:
+                        await app.state.slack_client.send_rich_message(
+                            channel=audit_channel,
+                            blocks=blocks,
+                            text="Atlas audit -- quick actions",
+                        )
+                        audit_log.info("audit_buttons_sent", channel=audit_channel, block_count=len(blocks))
+                except Exception as btn_err:
+                    audit_log.error("audit_buttons_error", error=str(btn_err))
+
             audit_log.info(
                 "scheduled_audit_complete",
                 total_opps=result.total_opportunities,
@@ -257,7 +276,7 @@ async def lifespan(app: FastAPI):
             audit_log.error("scheduled_audit_error", error=str(e), exc_info=True)
             try:
                 await app.state.slack_client.send_message(
-                    f":x: Atlas: Scheduled audit FAILED — {e}"
+                    f":x: Atlas: Scheduled audit FAILED -- {e}"
                 )
             except Exception:
                 pass
@@ -384,7 +403,7 @@ async def lifespan(app: FastAPI):
         id="daily_auto_dismiss",
     )
 
-    # Pre-call intelligence (Phase 10) — morning briefs before discovery calls
+    # Pre-call intelligence (Phase 10) -- morning briefs before discovery calls
     async def _morning_precall_briefs():
         """Send pre-call intelligence DMs to reps with upcoming prospect calls."""
         from app.modules.precall.intelligence import run_morning_precall_briefs
@@ -451,6 +470,46 @@ async def lifespan(app: FastAPI):
             hours=2,
             id="otter_meeting_sync",
         )
+
+        # End-of-day no-show detection -- cross-reference Calendly with Otter transcripts
+        async def _noshow_detection():
+            """6 PM EST scan: detect no-shows by checking Otter for meeting transcripts."""
+            from app.modules.noshow.detector import detect_noshows
+
+            noshow_log = structlog.get_logger()
+            noshow_log.info("noshow_detection_start")
+            try:
+                result = await detect_noshows(
+                    calendly_client=app.state.calendly_client,
+                    ghl_client=app.state.ghl_client,
+                    slack_client=app.state.slack_client,
+                    otter_client=app.state.otter_client,
+                )
+                noshow_log.info(
+                    "noshow_detection_complete",
+                    checked=result.events_checked,
+                    attended=result.attended,
+                    no_shows=result.no_shows_detected,
+                    updated=result.no_shows_updated,
+                    uncertain=result.uncertain,
+                )
+            except Exception as e:
+                noshow_log.error("noshow_detection_error", error=str(e), exc_info=True)
+                try:
+                    await app.state.slack_client.send_message(
+                        f":x: Atlas: No-show detection FAILED -- {e}"
+                    )
+                except Exception:
+                    pass
+
+        app.state.scheduler.add_job(
+            _noshow_detection,
+            "cron",
+            hour=18,
+            minute=0,
+            day_of_week="mon-fri",
+            id="noshow_detection",
+        )
     else:
         app.state.otter_client = None
         log.info("otter_client_skipped", reason="no_api_key")
@@ -458,7 +517,7 @@ async def lifespan(app: FastAPI):
     app.state.scheduler.start()
     jobs = ["daily_audit_8am_est", "subscription_check_6h", "weekly_rollup_fri_4pm", "daily_auto_dismiss_730am", "precall_briefs_730am", "weekly_show_rate_fri_430pm"]
     if settings.otter_api_key:
-        jobs.append("otter_sync_2h")
+        jobs.extend(["otter_sync_2h", "noshow_detection_6pm_est"])
     log.info("scheduler_started", jobs=jobs)
 
     # Conversational agent (Phase 6)
