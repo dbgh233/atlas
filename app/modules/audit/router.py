@@ -309,6 +309,127 @@ async def get_accountability(request: Request) -> JSONResponse:
         )
 
 
+@router.post("/dm-dispatch")
+async def trigger_dm_dispatch(request: Request) -> JSONResponse:
+    """Run DM dispatch + accountability upsert using the LAST audit snapshot.
+
+    This re-runs the DM dispatch without re-running the full audit, so it
+    completes quickly and doesn't hit Railway's proxy timeout.
+    """
+    from app.models.database import AccountabilityRepository
+    from app.modules.audit.ceo_mirror import send_ceo_mirror
+    from app.modules.audit.dm_digest import format_personal_dm, group_findings_by_user
+    from app.modules.audit.rules import SLACK_USER_IDS, USER_NAMES
+    from app.modules.audit.verification import reopen_snoozed_items, verify_resolutions
+
+    ghl_client = request.app.state.ghl_client
+    slack_client = request.app.state.slack_client
+    db = request.app.state.db
+
+    try:
+        # Re-run audit + tag (fast — uses cached GHL data from prior calls)
+        result = await run_audit(ghl_client)
+        tagged = await tag_findings(db, result)
+
+        acct_repo = AccountabilityRepository(db)
+        await reopen_snoozed_items(db)
+        verification_results = await verify_resolutions(db, ghl_client)
+
+        by_user = group_findings_by_user(tagged)
+        log.info("dm_dispatch_grouping", users=list(by_user.keys()), total_findings=len(tagged))
+        dm_results = []
+        items_upserted = 0
+
+        for user_ghl_id, user_findings in by_user.items():
+            slack_id = SLACK_USER_IDS.get(user_ghl_id)
+            if not slack_id:
+                log.info("dm_dispatch_skip_no_slack", user_ghl_id=user_ghl_id, findings=len(user_findings))
+                # Still upsert for tracking even without Slack DM
+                for tf in user_findings:
+                    f = tf.finding
+                    finding_key = f"{f.opp_id}|{f.category}|{f.field_name or ''}"
+                    await acct_repo.upsert_item(
+                        finding_key=finding_key, opp_id=f.opp_id,
+                        opp_name=f.opp_name, category=f.category,
+                        field_name=f.field_name or "", severity=f.severity,
+                        description=f.description,
+                        suggested_action=f.suggested_action or "",
+                        assigned_to_ghl=user_ghl_id,
+                    )
+                    items_upserted += 1
+                continue
+
+            prev_items = await acct_repo.get_open_for_user(user_ghl_id)
+            overdue_count = result.overdue_task_counts.get(user_ghl_id, 0)
+            text_fallback, blocks = format_personal_dm(
+                user_ghl_id, user_findings, overdue_count,
+                previous_items=[dict(r) for r in prev_items] if prev_items else None,
+            )
+
+            if blocks:
+                try:
+                    await slack_client.send_dm_blocks_by_user_id(slack_id, blocks, text=text_fallback)
+                except Exception as dm_err:
+                    log.warning("dm_send_failed", user=user_ghl_id, error=str(dm_err))
+                    try:
+                        await slack_client.send_dm_by_user_id(slack_id, text_fallback)
+                    except Exception:
+                        pass
+
+            new_count = 0
+            recurring_count = 0
+            for tf in user_findings:
+                f = tf.finding
+                finding_key = f"{f.opp_id}|{f.category}|{f.field_name or ''}"
+                await acct_repo.upsert_item(
+                    finding_key=finding_key, opp_id=f.opp_id,
+                    opp_name=f.opp_name, category=f.category,
+                    field_name=f.field_name or "", severity=f.severity,
+                    description=f.description,
+                    suggested_action=f.suggested_action or "",
+                    assigned_to_ghl=user_ghl_id,
+                    assigned_to_slack=slack_id,
+                )
+                items_upserted += 1
+                if tf.tag == "NEW":
+                    new_count += 1
+                else:
+                    recurring_count += 1
+
+            dm_results.append({
+                "user_ghl_id": user_ghl_id,
+                "user_name": USER_NAMES.get(user_ghl_id, user_ghl_id),
+                "items_sent": len(user_findings),
+                "new_count": new_count,
+                "recurring_count": recurring_count,
+            })
+
+        await send_ceo_mirror(
+            slack_client, db,
+            dm_results=dm_results,
+            verification_results=verification_results,
+        )
+
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": "complete",
+                "total_findings": len(tagged),
+                "users_dm_sent": len(dm_results),
+                "items_upserted": items_upserted,
+                "user_groups": {uid: len(fs) for uid, fs in by_user.items()},
+                "dm_results": dm_results,
+                "verifications": len(verification_results) if verification_results else 0,
+            },
+        )
+    except Exception as e:
+        log.error("dm_dispatch_error", error=str(e), exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "error": str(e)},
+        )
+
+
 @router.post("/scorecard")
 async def trigger_scorecard(request: Request) -> JSONResponse:
     """Manually trigger the weekly accountability scorecard."""
