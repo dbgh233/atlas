@@ -774,9 +774,10 @@ async def lifespan(app: FastAPI):
         from app.modules.pipeline_reporting.data import pull_pipeline_data
         from app.modules.pipeline_reporting.report import format_monthly_cohort
 
-        from zoneinfo import ZoneInfo
         # Only run on first Monday of the month (day 1-7)
-        if datetime.now(ZoneInfo("US/Eastern")).day > 7:
+        # Use EST approximation (UTC-5) for day check
+        est_now = datetime.now(UTC) - timedelta(hours=5)
+        if est_now.day > 7:
             return
 
         mc_log = structlog.get_logger()

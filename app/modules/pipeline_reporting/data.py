@@ -323,8 +323,8 @@ async def pull_pipeline_data(
 
     Returns a comprehensive dict with IRIS merchant metrics + GHL pipeline data.
     """
-    from zoneinfo import ZoneInfo
-    now = datetime.now(ZoneInfo("US/Eastern"))
+    # Use EST (UTC-5) for date calculations — all IRIS dates are naive
+    now = datetime.utcnow() - timedelta(hours=5)
 
     # Current month
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
