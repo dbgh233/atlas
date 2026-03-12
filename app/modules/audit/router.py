@@ -151,10 +151,31 @@ async def trigger_audit(request: Request) -> JSONResponse:
                 )
                 dm_summary["items_upserted"] += 1
 
+            # Build daily digest + commitment summary for CEO mirror
+            daily_digest_summary = {
+                "total_opps": result.total_opportunities,
+                "total_findings": len(tagged),
+                "sla_deals": getattr(result, "sla_deals_count", 0),
+            }
+            commitment_summary = None
+            try:
+                from app.modules.meetings.repository import CommitmentRepository as _CR
+                _cr = _CR(db)
+                _open = await _cr.get_open()
+                _missed = await _cr.get_missed()
+                commitment_summary = {
+                    "open_count": len(_open) if _open else 0,
+                    "overdue_count": len(_missed) if _missed else 0,
+                }
+            except Exception:
+                pass
+
             await send_ceo_mirror(
                 slack_client, db,
                 dm_results=dm_results,
                 verification_results=verification_results,
+                daily_digest_summary=daily_digest_summary,
+                commitment_summary=commitment_summary,
             )
             log.info("dm_dispatch_complete", **dm_summary)
         except Exception as dm_err:
@@ -404,10 +425,31 @@ async def trigger_dm_dispatch(request: Request) -> JSONResponse:
                 "recurring_count": recurring_count,
             })
 
+        # Build daily digest + commitment summary for CEO mirror
+        daily_digest_summary = {
+            "total_opps": result.total_opportunities,
+            "total_findings": len(tagged),
+            "sla_deals": getattr(result, "sla_deals_count", 0),
+        }
+        commitment_summary = None
+        try:
+            from app.modules.meetings.repository import CommitmentRepository as _CR
+            _cr = _CR(db)
+            _open = await _cr.get_open()
+            _missed = await _cr.get_missed()
+            commitment_summary = {
+                "open_count": len(_open) if _open else 0,
+                "overdue_count": len(_missed) if _missed else 0,
+            }
+        except Exception:
+            pass
+
         await send_ceo_mirror(
             slack_client, db,
             dm_results=dm_results,
             verification_results=verification_results,
+            daily_digest_summary=daily_digest_summary,
+            commitment_summary=commitment_summary,
         )
 
         return JSONResponse(
