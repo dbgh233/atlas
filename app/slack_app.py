@@ -580,7 +580,7 @@ async def handle_noshow_attended(ack, action, body, client) -> None:
     user_id = body.get("user", {}).get("id", "unknown")
     log.info("noshow_attended", value=value, user=user_id)
 
-    if not value:
+    if not value or not _agent:
         return
 
     original_blocks = body.get("message", {}).get("blocks", [])
