@@ -472,6 +472,67 @@ async def trigger_dm_dispatch(request: Request) -> JSONResponse:
         )
 
 
+@router.post("/ceo-mirror-test")
+async def test_ceo_mirror(request: Request) -> JSONResponse:
+    """Send a test CEO mirror DM with all sections populated."""
+    from app.modules.audit.ceo_mirror import send_ceo_mirror
+
+    slack_client = request.app.state.slack_client
+    db = request.app.state.db
+
+    try:
+        # Pull real commitment data
+        commitment_summary = None
+        try:
+            from app.modules.meetings.repository import CommitmentRepository as _CR
+            _cr = _CR(db)
+            _open = await _cr.get_open()
+            _missed = await _cr.get_missed()
+            commitment_summary = {
+                "open_count": len(_open) if _open else 0,
+                "overdue_count": len(_missed) if _missed else 0,
+            }
+        except Exception:
+            commitment_summary = {"open_count": 0, "overdue_count": 0}
+
+        # Pull real accountability counts
+        from app.models.database import AccountabilityRepository
+        acct_repo = AccountabilityRepository(db)
+
+        dm_results = []
+        for ghl_id, name in [("OcuxaptjbljS6L2SnKbb", "Henry"), ("MxNzXKj1RhdGMshfp9E5", "Hannah")]:
+            items = await acct_repo.get_open_for_user(ghl_id)
+            count = len(items) if items else 0
+            if count > 0:
+                dm_results.append({
+                    "user_ghl_id": ghl_id,
+                    "user_name": name,
+                    "items_sent": count,
+                    "new_count": 0,
+                    "recurring_count": count,
+                })
+
+        await send_ceo_mirror(
+            slack_client, db,
+            dm_results=dm_results,
+            daily_digest_summary={
+                "total_opps": 93,
+                "total_findings": 60,
+                "sla_deals": 10,
+            },
+            commitment_summary=commitment_summary,
+        )
+
+        return JSONResponse(status_code=200, content={
+            "status": "sent",
+            "dm_results": dm_results,
+            "commitment_summary": commitment_summary,
+        })
+    except Exception as e:
+        log.error("ceo_mirror_test_error", error=str(e), exc_info=True)
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
 @router.post("/scorecard")
 async def trigger_scorecard(request: Request) -> JSONResponse:
     """Manually trigger the weekly accountability scorecard."""
