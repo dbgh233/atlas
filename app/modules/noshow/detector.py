@@ -17,6 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from difflib import SequenceMatcher
+from zoneinfo import ZoneInfo
 
 import structlog
 
@@ -260,17 +261,15 @@ async def detect_noshows(
     """
     result = NoShowCheckResult()
 
-    # 1. Get today's date range (EST)
-    now_utc = datetime.now(UTC)
-    # EST = UTC-5 (ignore DST for simplicity — close enough for 6 PM check)
-    est_offset = timedelta(hours=-5)
-    now_est = now_utc + est_offset
-    today_start_est = now_est.replace(hour=0, minute=0, second=0, microsecond=0)
-    today_end_est = now_est.replace(hour=23, minute=59, second=59, microsecond=0)
+    # 1. Get today's date range (US/Eastern — handles EST/EDT automatically)
+    eastern = ZoneInfo("America/New_York")
+    now_eastern = datetime.now(eastern)
+    today_start = now_eastern.replace(hour=0, minute=0, second=0, microsecond=0)
+    today_end = now_eastern.replace(hour=23, minute=59, second=59, microsecond=0)
 
-    # Convert back to UTC ISO strings for Calendly API
-    min_start = (today_start_est - est_offset).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-    max_start = (today_end_est - est_offset).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    # Convert to UTC ISO strings for Calendly API
+    min_start = today_start.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    max_start = today_end.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
     log.info("noshow_scan_start", date=now_est.strftime("%Y-%m-%d"), min_start=min_start, max_start=max_start)
 
@@ -747,11 +746,12 @@ async def _send_confirmation_dm(
 
 
 def _format_time(iso_time: str) -> str:
-    """Format an ISO timestamp to a human-readable time string."""
+    """Format an ISO timestamp to a human-readable time string (US/Eastern)."""
     try:
         dt = datetime.fromisoformat(iso_time.replace("Z", "+00:00"))
-        # Convert to EST for display
-        est_dt = dt + timedelta(hours=-5)
-        return est_dt.strftime("%I:%M %p EST")
+        eastern = ZoneInfo("America/New_York")
+        eastern_dt = dt.astimezone(eastern)
+        # Show ET (covers both EST and EDT)
+        return eastern_dt.strftime("%I:%M %p ET")
     except (ValueError, AttributeError):
         return iso_time

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import re
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 from difflib import SequenceMatcher
 
 import httpx
@@ -722,12 +723,12 @@ async def run_precall_dry_run(
 
 
 def _format_time_est(iso_time: str) -> str:
-    """Convert ISO time to a readable EST time string."""
+    """Convert ISO time to a readable Eastern time string (handles EST/EDT)."""
     try:
         dt = datetime.fromisoformat(iso_time.replace("Z", "+00:00"))
-        # Convert to EST (UTC-5)
-        est_dt = dt - timedelta(hours=5)
-        return est_dt.strftime("%I:%M %p").lstrip("0") + " EST"
+        eastern = ZoneInfo("America/New_York")
+        eastern_dt = dt.astimezone(eastern)
+        return eastern_dt.strftime("%I:%M %p").lstrip("0") + " ET"
     except Exception:
         return iso_time
 
@@ -1040,6 +1041,9 @@ async def _process_single_call(
 
             slack_user_id = rep_profile.get("slack_user_id") if rep_profile else None
 
+            # CEO Slack ID for fallback DM (never post briefs to public channel)
+            CEO_SLACK_FALLBACK = "U07LUAX5T89"
+
             if slack_client.web_client and slack_user_id:
                 try:
                     await slack_client.send_dm_by_user_id(slack_user_id, dm_text)
@@ -1052,6 +1056,23 @@ async def _process_single_call(
                     )
                 except Exception as e:
                     log.warning("precall_dm_failed", rep=host_name, error=str(e))
-                    await slack_client.send_message(dm_text)
+                    # Fallback: DM CEO instead of posting to public channel
+                    try:
+                        await slack_client.send_dm_by_user_id(
+                            CEO_SLACK_FALLBACK,
+                            f":warning: *Precall brief DM failed for {host_name}* — sending to you instead:\n\n{dm_text}",
+                        )
+                    except Exception:
+                        log.error("precall_ceo_fallback_failed", rep=host_name)
+            elif slack_client.web_client:
+                # No slack_user_id for this rep — DM CEO instead
+                try:
+                    await slack_client.send_dm_by_user_id(
+                        CEO_SLACK_FALLBACK,
+                        f":warning: *No Slack ID for {host_name}* — precall brief:\n\n{dm_text}",
+                    )
+                except Exception:
+                    log.error("precall_ceo_fallback_failed", rep=host_name)
             else:
+                # No web_client at all — last resort, use webhook
                 await slack_client.send_message(dm_text)

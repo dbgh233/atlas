@@ -486,15 +486,16 @@ async def auto_dismiss_fulfilled(
         except Exception:
             continue
 
-        opp_updated = opp.get("updatedAt", "")
+        # Only auto-dismiss if the deal's STAGE has changed since the commitment
+        # was created (not just any opp update like notes/tags/fields).
+        last_stage_change = opp.get("lastStageChangeAt", "")
         commitment_date = c.get("created_at", "")
 
-        if opp_updated > commitment_date:
-            # Deal has activity since commitment — auto-fulfill
+        if last_stage_change and last_stage_change > commitment_date:
             await commitment_repo.update_status(
                 c["id"],
                 "fulfilled",
-                evidence=f"Auto-dismissed: opp updated at {opp_updated}",
+                evidence=f"Auto-dismissed: opp stage changed at {last_stage_change}",
             )
             dismissed.append({
                 "id": c["id"],
@@ -507,6 +508,7 @@ async def auto_dismiss_fulfilled(
                 "commitment_auto_dismissed",
                 commitment_id=c["id"],
                 opp_id=opp_id,
+                stage_changed_at=last_stage_change,
             )
 
     return dismissed
