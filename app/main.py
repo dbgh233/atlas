@@ -34,6 +34,7 @@ from app.modules.health.checks import check_calendly_subscriptions, get_operatio
 from app.modules.meetings.router import router as meetings_router
 from app.modules.precall.router import router as precall_router
 from app.modules.weekly.router import router as weekly_router
+from app.modules.pipeline_reporting.router import router as pipeline_reporting_router
 from app.slack_app import set_agent, slack_handler
 
 
@@ -697,8 +698,111 @@ async def lifespan(app: FastAPI):
         id="weekly_scorecard",
     )
 
+    # Pipeline reporting — Daily pulse (7AM) + Weekly scorecard (4PM Fri) + Monthly cohort (1st Mon)
+    async def _pipeline_daily_pulse():
+        """Send daily pipeline pulse DM to CEO (Hormozi leading indicators)."""
+        from app.modules.pipeline_reporting.data import pull_pipeline_data
+        from app.modules.pipeline_reporting.report import format_daily_pulse
+
+        pulse_log = structlog.get_logger()
+        pulse_log.info("pipeline_daily_pulse_start")
+        try:
+            data = await pull_pipeline_data(
+                http_client=app.state.http_client,
+                ghl_client=app.state.ghl_client,
+            )
+            text = format_daily_pulse(data)
+            await app.state.slack_client.send_dm_by_user_id("U07LUAX5T89", text)
+            pulse_log.info(
+                "pipeline_daily_pulse_complete",
+                approvals=data["current_month"]["approvals"],
+                went_live=data["current_month"]["went_live"],
+            )
+        except Exception as e:
+            pulse_log.error("pipeline_daily_pulse_error", error=str(e), exc_info=True)
+            try:
+                await app.state.slack_client.send_message(
+                    f":x: Atlas: Pipeline daily pulse FAILED -- {e}"
+                )
+            except Exception:
+                pass
+
+    app.state.scheduler.add_job(
+        _pipeline_daily_pulse,
+        "cron",
+        hour=7,
+        minute=0,
+        day_of_week="mon-fri",
+        id="pipeline_daily_pulse",
+    )
+
+    async def _pipeline_weekly_scorecard():
+        """Send weekly pipeline scorecard DM to CEO (Martell Precision Scorecard)."""
+        from app.modules.pipeline_reporting.data import pull_pipeline_data
+        from app.modules.pipeline_reporting.report import format_weekly_scorecard
+
+        sc_log = structlog.get_logger()
+        sc_log.info("pipeline_weekly_scorecard_start")
+        try:
+            data = await pull_pipeline_data(
+                http_client=app.state.http_client,
+                ghl_client=app.state.ghl_client,
+            )
+            text = format_weekly_scorecard(data)
+            await app.state.slack_client.send_dm_by_user_id("U07LUAX5T89", text)
+            sc_log.info("pipeline_weekly_scorecard_complete")
+        except Exception as e:
+            sc_log.error("pipeline_weekly_scorecard_error", error=str(e), exc_info=True)
+            try:
+                await app.state.slack_client.send_message(
+                    f":x: Atlas: Pipeline weekly scorecard FAILED -- {e}"
+                )
+            except Exception:
+                pass
+
+    app.state.scheduler.add_job(
+        _pipeline_weekly_scorecard,
+        "cron",
+        hour=16,
+        minute=45,
+        day_of_week="fri",
+        id="pipeline_weekly_scorecard",
+    )
+
+    async def _pipeline_monthly_cohort():
+        """Send monthly cohort analysis DM to CEO (1st Monday of month)."""
+        from app.modules.pipeline_reporting.data import pull_pipeline_data
+        from app.modules.pipeline_reporting.report import format_monthly_cohort
+
+        from zoneinfo import ZoneInfo
+        # Only run on first Monday of the month (day 1-7)
+        if datetime.now(ZoneInfo("US/Eastern")).day > 7:
+            return
+
+        mc_log = structlog.get_logger()
+        mc_log.info("pipeline_monthly_cohort_start")
+        try:
+            data = await pull_pipeline_data(
+                http_client=app.state.http_client,
+                ghl_client=app.state.ghl_client,
+            )
+            text = format_monthly_cohort(data)
+            await app.state.slack_client.send_dm_by_user_id("U07LUAX5T89", text)
+            mc_log.info("pipeline_monthly_cohort_complete")
+        except Exception as e:
+            mc_log.error("pipeline_monthly_cohort_error", error=str(e), exc_info=True)
+
+    app.state.scheduler.add_job(
+        _pipeline_monthly_cohort,
+        "cron",
+        hour=8,
+        minute=0,
+        day_of_week="mon",
+        id="pipeline_monthly_cohort",
+    )
+
     app.state.scheduler.start()
-    jobs = ["daily_audit_8am_est", "subscription_check_6h", "weekly_rollup_fri_4pm", "daily_auto_dismiss_730am", "precall_briefs_730am", "weekly_show_rate_fri_430pm", "weekly_scorecard_fri_415pm"]
+    jobs = ["daily_audit_8am_est", "subscription_check_6h", "weekly_rollup_fri_4pm", "daily_auto_dismiss_730am", "precall_briefs_730am", "weekly_show_rate_fri_430pm", "weekly_scorecard_fri_415pm", "pipeline_daily_pulse_7am", "pipeline_weekly_scorecard_fri_445pm", "pipeline_monthly_cohort_1st_mon"]
     if settings.otter_api_key:
         jobs.extend(["otter_sync_2h", "noshow_detection_monthu_7pm", "noshow_detection_fri_6pm"])
     log.info("scheduler_started", jobs=jobs)
@@ -856,3 +960,4 @@ app.include_router(audit_router, prefix="/audit")
 app.include_router(meetings_router, prefix="/meetings")
 app.include_router(precall_router, prefix="/precall")
 app.include_router(weekly_router, prefix="/weekly")
+app.include_router(pipeline_reporting_router, prefix="/pipeline-reporting")
