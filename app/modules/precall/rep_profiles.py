@@ -166,6 +166,24 @@ REP_PROFILES: dict[str, dict] = {
         ],
         # Added: 2026-03-11 from actual master prompt PDF
     },
+    "dbrasiel@ahgpay.com": {
+        "name": "Drew Brasiel",
+        "slack_user_id": "U07LUAX5T89",
+        "calendly_email": "dbrasiel@ahgpay.com",
+        "ghl_user_id": "8oVYzIxdHG8TGVpXc3Ma",
+        "role": "CEO",
+        "master_prompt": (
+            "Drew is the CEO and founder of AHG Payments. He handles high-value "
+            "discovery calls, strategic partnerships, and complex deals. Focus on "
+            "strategic fit, deal size, and long-term partnership potential."
+        ),
+        "personal_context": (
+            "Drew has deep industry expertise in high-risk payment processing. "
+            "He focuses on CBD/hemp, nutraceuticals, and alternative wellness verticals. "
+            "For his calls, emphasize competitive positioning and revenue opportunity. "
+            "He prefers concise, data-driven briefs with clear action items."
+        ),
+    },
 }
 
 # AHG company context for generating briefs — sourced from ahgpay.com and althorizonsg.com

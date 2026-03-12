@@ -338,6 +338,27 @@ async def lifespan(app: FastAPI):
                         "recurring_count": recurring_count,
                     })
 
+                # Build daily digest summary for CEO mirror
+                daily_digest_summary = {
+                    "total_opps": result.total_opportunities,
+                    "total_findings": len(tagged),
+                    "sla_deals": getattr(result, "sla_deals_count", 0),
+                }
+
+                # Build commitment summary for CEO mirror
+                commitment_summary = None
+                try:
+                    from app.modules.meetings.repository import CommitmentRepository as _CR
+                    _cr = _CR(app.state.db)
+                    _open = await _cr.get_open()
+                    _missed = await _cr.get_missed()
+                    commitment_summary = {
+                        "open_count": len(_open) if _open else 0,
+                        "overdue_count": len(_missed) if _missed else 0,
+                    }
+                except Exception:
+                    pass
+
                 # Send CEO mirror
                 await send_ceo_mirror(
                     app.state.slack_client,
@@ -345,6 +366,8 @@ async def lifespan(app: FastAPI):
                     dm_results=dm_results,
                     verification_results=verification_results,
                     auto_fixes=auto_fixed if auto_fixed else None,
+                    daily_digest_summary=daily_digest_summary,
+                    commitment_summary=commitment_summary,
                 )
 
                 audit_log.info(
@@ -515,6 +538,22 @@ async def lifespan(app: FastAPI):
                 calls=result["calls_found"],
                 briefs=result["briefs_sent"],
             )
+
+            # Send CEO mirror update with precall summary
+            if result.get("calls_found", 0) > 0:
+                try:
+                    from app.modules.audit.ceo_mirror import send_ceo_mirror
+                    await send_ceo_mirror(
+                        app.state.slack_client,
+                        app.state.db,
+                        dm_results=[],
+                        precall_summary={
+                            "reps_briefed": result.get("briefs_sent", 0),
+                            "appointments_today": result.get("calls_found", 0),
+                        },
+                    )
+                except Exception as mirror_err:
+                    precall_log.error("precall_ceo_mirror_error", error=str(mirror_err))
         except Exception as e:
             precall_log.error("precall_morning_error", error=str(e), exc_info=True)
 
@@ -582,6 +621,31 @@ async def lifespan(app: FastAPI):
                     updated=result.no_shows_updated,
                     uncertain=result.uncertain,
                 )
+
+                # Send CEO mirror update with no-show results
+                if result.events_checked > 0:
+                    try:
+                        from app.modules.audit.ceo_mirror import send_ceo_mirror
+                        noshow_details = []
+                        for d in (result.details or []):
+                            if d.get("status") in ("no_show", "uncertain"):
+                                noshow_details.append(
+                                    f"{d.get('invitee', '?')} ({d.get('email', '?')}) — {d.get('event_name', '?')}"
+                                )
+                        await send_ceo_mirror(
+                            app.state.slack_client,
+                            app.state.db,
+                            dm_results=[],
+                            noshow_summary={
+                                "events_checked": result.events_checked,
+                                "attended": result.attended,
+                                "no_shows": result.no_shows_detected,
+                                "uncertain": result.uncertain,
+                                "details": noshow_details,
+                            },
+                        )
+                    except Exception as mirror_err:
+                        noshow_log.error("noshow_ceo_mirror_error", error=str(mirror_err))
             except Exception as e:
                 noshow_log.error("noshow_detection_error", error=str(e), exc_info=True)
                 try:

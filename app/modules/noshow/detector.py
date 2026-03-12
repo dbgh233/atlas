@@ -47,7 +47,12 @@ FUZZY_MATCH_THRESHOLD = 0.55
 REP_SLACK_IDS = {
     "Henry": "U08H642F692",
     "Ism": "U09ECH8G1K9",
+    "Drew": "U07LUAX5T89",
+    "Hannah": "U0A16L99ANB",
 }
+
+# CEO Slack ID for mirror notifications
+CEO_SLACK_ID = "U07LUAX5T89"
 
 
 @dataclass
@@ -406,6 +411,10 @@ async def detect_noshows(
 
             else:
                 # No transcript, no cancellation — likely no-show
+                # NOTE: Do NOT auto-update GHL fields. Otter transcript
+                # absence does not guarantee the meeting didn't happen
+                # (recorder may have failed, wrong Zoom link, etc.).
+                # Instead, flag for human confirmation via Slack buttons.
                 check.status = "no_show"
                 result.no_shows_detected += 1
                 log.info(
@@ -415,18 +424,15 @@ async def detect_noshows(
                     event_name=event_name,
                 )
 
-                # Try to find GHL opportunity and auto-update
+                # Look up GHL opp for the button callback (but do NOT update)
                 try:
-                    updated = await _find_and_update_noshow(
-                        ghl_client, check, event_name
+                    opp_id = await _find_ghl_opp_for_noshow(
+                        ghl_client, check
                     )
-                    if updated:
-                        result.no_shows_updated += 1
+                    if opp_id:
+                        check.ghl_opp_id = opp_id
                 except Exception as e:
-                    check.error = str(e)
-                    result.errors.append(
-                        f"GHL update failed for {invitee_email}: {e}"
-                    )
+                    log.warning("noshow_ghl_lookup_failed", email=invitee_email, error=str(e))
 
             checks.append(check)
 
@@ -509,24 +515,14 @@ async def auto_update_noshow(
         raise
 
 
-async def _find_and_update_noshow(
+async def _find_ghl_opp_for_noshow(
     ghl_client: GHLClient,
     check: MeetingCheck,
-    event_name: str,
-) -> bool:
-    """Find the GHL opportunity for a no-show and update it.
+) -> str | None:
+    """Look up the GHL opportunity for a no-show (WITHOUT updating any fields).
 
-    Searches GHL by invitee email, then updates the matching opportunity.
+    Returns the opp_id if found, None otherwise.
     """
-    # Determine appointment type from event name
-    name_lower = event_name.lower()
-    if "discovery" in name_lower:
-        appointment_type = "Discovery"
-    elif "onboarding" in name_lower:
-        appointment_type = "Onboarding"
-    else:
-        appointment_type = "Unknown"
-
     # Search GHL for the contact by email
     try:
         contacts = await ghl_client.search_contacts(check.invitee_email)
@@ -536,11 +532,11 @@ async def _find_and_update_noshow(
             email=check.invitee_email,
             error=str(e),
         )
-        return False
+        return None
 
     if not contacts:
         log.warning("noshow_no_contact_found", email=check.invitee_email)
-        return False
+        return None
 
     contact = contacts[0]
     contact_id = contact.get("id", "")
@@ -551,38 +547,19 @@ async def _find_and_update_noshow(
         all_opps = await ghl_client.search_opportunities(status="open")
     except Exception as e:
         log.error("noshow_opp_search_failed", error=str(e))
-        return False
+        return None
 
-    matching_opp = None
     for opp in all_opps:
         opp_contact_id = opp.get("contactId") or opp.get("contact_id", "")
         if opp_contact_id == contact_id:
-            matching_opp = opp
-            break
+            return opp.get("id", "")
 
-    if not matching_opp:
-        log.warning(
-            "noshow_no_opp_found",
-            email=check.invitee_email,
-            contact_id=contact_id,
-        )
-        return False
-
-    opp_id = matching_opp.get("id", "")
-    check.ghl_opp_id = opp_id
-
-    # Check if appointment status is already set (don't overwrite)
-    existing_status = _get_custom_field(matching_opp, FIELD_APPOINTMENT_STATUS)
-    if existing_status and existing_status.lower() in ("no-show", "cancelled", "completed"):
-        log.info(
-            "noshow_already_set",
-            opp_id=opp_id,
-            existing_status=existing_status,
-        )
-        return False
-
-    # Update the opportunity
-    return await auto_update_noshow(ghl_client, opp_id, appointment_type)
+    log.warning(
+        "noshow_no_opp_found",
+        email=check.invitee_email,
+        contact_id=contact_id,
+    )
+    return None
 
 
 def _get_custom_field(opportunity: dict, field_id: str) -> str | None:
@@ -607,12 +584,12 @@ async def _send_noshow_summary(
     result: NoShowCheckResult,
     checks: list[MeetingCheck],
 ) -> None:
-    """Send end-of-day no-show detection summary to Slack."""
+    """Send no-show summary to channel (text-only) + CEO DM with confirmation buttons."""
     try:
         if result.events_checked == 0:
-            # No meetings to check — skip notification
             return
 
+        # --- Channel text-only summary ---
         lines = [
             ":detective: *End-of-Day No-Show Detection*",
             f"Checked {result.events_checked} meeting(s) scheduled today.\n",
@@ -626,14 +603,9 @@ async def _send_noshow_summary(
 
         if result.no_shows_detected > 0:
             lines.append(
-                f":x: *{result.no_shows_detected} no-show(s) detected* "
-                f"(no transcript, no cancellation)"
+                f":warning: *{result.no_shows_detected} possible no-show(s)* "
+                f"(no transcript found — awaiting confirmation)"
             )
-            if result.no_shows_updated > 0:
-                lines.append(
-                    f"  - {result.no_shows_updated} auto-updated in GHL "
-                    f"(Appointment Status -> No-Show)"
-                )
 
         if result.uncertain > 0:
             lines.append(
@@ -647,19 +619,14 @@ async def _send_noshow_summary(
                 f"(already handled by webhook)"
             )
 
-        # Detail lines for no-shows and uncertain
         noshow_checks = [c for c in checks if c.status in ("no_show", "uncertain")]
         if noshow_checks:
             lines.append("\n*Details:*")
             for c in noshow_checks:
-                emoji = ":x:" if c.status == "no_show" else ":question:"
-                updated_label = ""
-                if c.ghl_opp_id:
-                    updated_label = " (GHL updated)"
+                emoji = ":warning:" if c.status == "no_show" else ":question:"
                 lines.append(
                     f"{emoji} {c.invitee_name} ({c.invitee_email}) "
                     f"- _{c.event_name}_ at {_format_time(c.start_time)}"
-                    f"{updated_label}"
                 )
 
         if result.errors:
@@ -667,7 +634,72 @@ async def _send_noshow_summary(
 
         await slack_client.send_message("\n".join(lines))
 
-        # Send individual confirmation DMs for uncertain cases
+        # --- CEO DM with Block Kit confirmation buttons for each no-show ---
+        actionable_checks = [c for c in checks if c.status in ("no_show", "uncertain")]
+        if actionable_checks and slack_client.web_client:
+            blocks = [
+                {
+                    "type": "header",
+                    "text": {"type": "plain_text", "text": "No-Show Confirmation Required"},
+                },
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": (
+                            f"Atlas detected *{len(actionable_checks)}* possible no-show(s). "
+                            "No GHL fields have been updated. Please confirm each:"
+                        ),
+                    },
+                },
+                {"type": "divider"},
+            ]
+
+            for c in actionable_checks:
+                emoji = ":warning:" if c.status == "no_show" else ":question:"
+                opp_ref = c.ghl_opp_id or "none"
+                # Value format: opp_id|email|event_name
+                btn_value = f"{opp_ref}|{c.invitee_email}|{c.event_name}"
+
+                blocks.append({
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": (
+                            f"{emoji} *{c.invitee_name}* ({c.invitee_email})\n"
+                            f"_{c.event_name}_ at {_format_time(c.start_time)}"
+                        ),
+                    },
+                })
+                blocks.append({
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "Confirm No-Show"},
+                            "style": "danger",
+                            "action_id": "noshow_confirm",
+                            "value": btn_value,
+                        },
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "Was Attended"},
+                            "style": "primary",
+                            "action_id": "noshow_attended",
+                            "value": btn_value,
+                        },
+                    ],
+                })
+
+            try:
+                await slack_client.send_dm_blocks_by_user_id(
+                    CEO_SLACK_ID, blocks, text="No-show confirmation required"
+                )
+                log.info("noshow_ceo_dm_sent", count=len(actionable_checks))
+            except Exception as e:
+                log.error("noshow_ceo_dm_failed", error=str(e))
+
+        # Send individual confirmation DMs for uncertain cases to reps
         for c in checks:
             if c.status == "uncertain":
                 await _send_confirmation_dm(slack_client, c)

@@ -34,6 +34,9 @@ async def format_ceo_mirror(
     verification_results: list[dict] | None = None,
     auto_fixes: list[dict] | None = None,
     precall_summary: dict | None = None,
+    noshow_summary: dict | None = None,
+    daily_digest_summary: dict | None = None,
+    commitment_summary: dict | None = None,
 ) -> str:
     """Build compact CEO mirror text for Slack DM.
 
@@ -46,6 +49,12 @@ async def format_ceo_mirror(
             opp_name, field_name
         precall_summary: optional dict from precall module with:
             reps_briefed, appointments_today
+        noshow_summary: optional dict with:
+            events_checked, attended, no_shows, uncertain, details (list of names)
+        daily_digest_summary: optional dict with:
+            total_opps, total_findings, sla_deals
+        commitment_summary: optional dict with:
+            open_count, overdue_count
     """
     now = datetime.now(UTC)
     timestamp = now.strftime("%b %d, %-I:%M %p")
@@ -129,6 +138,55 @@ async def format_ceo_mirror(
         )
 
     # ------------------------------------------------------------------
+    # No-show detection
+    # ------------------------------------------------------------------
+    if noshow_summary:
+        lines.append("")
+        lines.append("*No-Show Detection:*")
+        checked = noshow_summary.get("events_checked", 0)
+        attended = noshow_summary.get("attended", 0)
+        no_shows = noshow_summary.get("no_shows", 0)
+        uncertain = noshow_summary.get("uncertain", 0)
+        lines.append(
+            f"  Checked {checked} meeting(s) — "
+            f"{attended} attended, {no_shows} possible no-show(s), "
+            f"{uncertain} uncertain"
+        )
+        if no_shows > 0:
+            lines.append("  :warning: Confirmation buttons sent to you above")
+        details = noshow_summary.get("details", [])
+        for d in details[:5]:
+            lines.append(f"  • {d}")
+
+    # ------------------------------------------------------------------
+    # Daily digest
+    # ------------------------------------------------------------------
+    if daily_digest_summary:
+        lines.append("")
+        total_opps = daily_digest_summary.get("total_opps", 0)
+        total_findings = daily_digest_summary.get("total_findings", 0)
+        sla_deals = daily_digest_summary.get("sla_deals", 0)
+        lines.append(
+            f"*Daily Audit:* {total_opps} opps scanned, "
+            f"{total_findings} findings, {sla_deals} SLA deals"
+        )
+
+    # ------------------------------------------------------------------
+    # Open commitments
+    # ------------------------------------------------------------------
+    if commitment_summary:
+        lines.append("")
+        open_c = commitment_summary.get("open_count", 0)
+        overdue = commitment_summary.get("overdue_count", 0)
+        if open_c > 0:
+            lines.append(
+                f"*Commitments:* {open_c} open"
+                + (f" ({overdue} overdue)" if overdue else "")
+            )
+        else:
+            lines.append("*Commitments:* All clear :white_check_mark:")
+
+    # ------------------------------------------------------------------
     # Team snapshot
     # ------------------------------------------------------------------
     total_items = sum(dm.get("items_sent", 0) for dm in dm_results) if dm_results else 0
@@ -157,21 +215,20 @@ async def send_ceo_mirror(
     dm_results: list[dict],
     verification_results: list[dict] | None = None,
     auto_fixes: list[dict] | None = None,
+    noshow_summary: dict | None = None,
+    daily_digest_summary: dict | None = None,
+    commitment_summary: dict | None = None,
+    precall_summary: dict | None = None,
 ) -> None:
-    """Send CEO mirror DM to Drew and log to ceo_action_log.
-
-    Args:
-        slack_client: an object with a ``chat_postMessage`` or ``post_dm`` method
-            that accepts (channel=..., text=...) kwargs.
-        db: aiosqlite connection for logging.
-        dm_results: per-user DM result dicts.
-        verification_results: optional verification loop output.
-        auto_fixes: optional autofill output.
-    """
+    """Send CEO mirror DM to Drew and log to ceo_action_log."""
     mirror_text = await format_ceo_mirror(
         dm_results=dm_results,
         verification_results=verification_results,
         auto_fixes=auto_fixes,
+        precall_summary=precall_summary,
+        noshow_summary=noshow_summary,
+        daily_digest_summary=daily_digest_summary,
+        commitment_summary=commitment_summary,
     )
 
     # Send DM to Drew via Slack

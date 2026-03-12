@@ -498,6 +498,110 @@ async def handle_not_mine(ack, action, body, client) -> None:
 
 
 # ---------------------------------------------------------------------------
+# No-show confirmation buttons (CEO confirms/rejects detected no-shows)
+# ---------------------------------------------------------------------------
+
+
+@slack_app.action("noshow_confirm")
+async def handle_noshow_confirm(ack, action, body, client) -> None:
+    """CEO confirms a no-show — update GHL fields."""
+    await ack()
+
+    value = action.get("value", "")
+    user_id = body.get("user", {}).get("id", "unknown")
+    log.info("noshow_confirm", value=value, user=user_id)
+
+    if not value or not _agent:
+        return
+
+    # value format: opp_id|email|event_name
+    parts = value.split("|", 2)
+    opp_id = parts[0] if parts else ""
+    event_name = parts[2] if len(parts) > 2 else ""
+
+    if not opp_id or opp_id == "none":
+        # No GHL opp found — just acknowledge
+        original_blocks = body.get("message", {}).get("blocks", [])
+        updated_blocks = _replace_action_with_status(
+            original_blocks, value,
+            f":x: Confirmed no-show by <@{user_id}> — no GHL opp linked, manual update needed",
+        )
+        channel_id = body.get("channel", {}).get("id")
+        message_ts = body.get("message", {}).get("ts")
+        if channel_id and message_ts:
+            try:
+                await client.chat_update(
+                    channel=channel_id, ts=message_ts,
+                    blocks=updated_blocks, text="No-show confirmed (no GHL opp)",
+                )
+            except Exception as e:
+                log.warning("noshow_confirm_update_failed", error=str(e))
+        return
+
+    # Determine appointment type from event name
+    name_lower = event_name.lower()
+    if "discovery" in name_lower:
+        appointment_type = "Discovery"
+    elif "onboarding" in name_lower:
+        appointment_type = "Onboarding"
+    else:
+        appointment_type = "Unknown"
+
+    # Now update GHL — only on explicit CEO confirmation
+    try:
+        from app.modules.noshow.detector import auto_update_noshow
+        await auto_update_noshow(_agent.ghl_client, opp_id, appointment_type)
+        status_text = f":x: No-show confirmed by <@{user_id}> — GHL updated"
+    except Exception as e:
+        log.error("noshow_confirm_ghl_error", error=str(e), opp_id=opp_id)
+        status_text = f":warning: Confirmed by <@{user_id}> but GHL update failed: {e}"
+
+    original_blocks = body.get("message", {}).get("blocks", [])
+    updated_blocks = _replace_action_with_status(original_blocks, value, status_text)
+
+    channel_id = body.get("channel", {}).get("id")
+    message_ts = body.get("message", {}).get("ts")
+    if channel_id and message_ts:
+        try:
+            await client.chat_update(
+                channel=channel_id, ts=message_ts,
+                blocks=updated_blocks, text="No-show confirmed",
+            )
+        except Exception as e:
+            log.warning("noshow_confirm_update_failed", error=str(e))
+
+
+@slack_app.action("noshow_attended")
+async def handle_noshow_attended(ack, action, body, client) -> None:
+    """CEO says the meeting was actually attended — no GHL update needed."""
+    await ack()
+
+    value = action.get("value", "")
+    user_id = body.get("user", {}).get("id", "unknown")
+    log.info("noshow_attended", value=value, user=user_id)
+
+    if not value:
+        return
+
+    original_blocks = body.get("message", {}).get("blocks", [])
+    updated_blocks = _replace_action_with_status(
+        original_blocks, value,
+        f":white_check_mark: Marked as attended by <@{user_id}> — no GHL changes",
+    )
+
+    channel_id = body.get("channel", {}).get("id")
+    message_ts = body.get("message", {}).get("ts")
+    if channel_id and message_ts:
+        try:
+            await client.chat_update(
+                channel=channel_id, ts=message_ts,
+                blocks=updated_blocks, text="Meeting was attended",
+            )
+        except Exception as e:
+            log.warning("noshow_attended_update_failed", error=str(e))
+
+
+# ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
 
